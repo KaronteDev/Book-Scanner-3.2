@@ -711,7 +711,7 @@ class ScannerWindow(tk.Toplevel):
         ttk.Button(toolbar, text="Refrescar", command=self.refresh_cameras).grid(row=0, column=2, padx=6)
         ttk.Button(toolbar, text="Conectar", command=self.open_camera).grid(row=0, column=3, padx=6)
         ttk.Button(toolbar, text="Desconectar", command=self.close_camera).grid(row=0, column=4, padx=6)
-        self.var_two_halves = tk.BooleanVar(value=True)
+        self.var_two_halves = tk.BooleanVar(value=False)
         ttk.Checkbutton(toolbar, text="Dos mitades fijas", variable=self.var_two_halves).grid(row=0, column=5, padx=12)
         ttk.Label(toolbar, text="Anverso/Reverso:").grid(row=0, column=6, padx=(12,4), sticky="e")
         self.var_face = tk.StringVar(value="anverso")
@@ -769,7 +769,7 @@ class ScannerWindow(tk.Toplevel):
         bottom = ttk.Frame(scanner_frame); bottom.grid(row=4, column=0, sticky="ew", pady=(6,2))
         ttk.Button(bottom, text="Capturar (SPACE)", command=self.capture).grid(row=0, column=0, padx=6)
         ttk.Button(bottom, text="Guardar imagen", command=self.capture).grid(row=0, column=1, padx=6)
-        ttk.Button(bottom, text="Volver", command=lambda: self.app.show_frame("start")).grid(row=0, column=2, padx=6)
+        ttk.Button(bottom, text="Cerrar", command=self.on_window_close).grid(row=0, column=2, padx=6)
         ttk.Button(bottom, text="Recortar página", command=self.auto_crop_page).grid(row=0, column=3, padx=6)
         self.cap = None; self._preview_running = False; self._tkimg = None
         self._last_detected = None
@@ -921,7 +921,12 @@ class ScannerWindow(tk.Toplevel):
                     detected = None
             except Exception:
                 detected = None
-            img = self._fit_to_canvas(img, (self.canvas.winfo_width(), self.canvas.winfo_height()))
+            # Safely query canvas size; it may be destroyed during shutdown
+            try:
+                cw = self.canvas.winfo_width(); ch = self.canvas.winfo_height()
+            except Exception:
+                break
+            img = self._fit_to_canvas(img, (cw, ch))
             # Pass original frame size and detected points so they can be scaled to the displayed image
             orig_size = (frame.shape[1], frame.shape[0])
             # Schedule UI update on main thread to avoid Tkinter threading issues
@@ -1081,7 +1086,21 @@ class ScannerWindow(tk.Toplevel):
         # Get next page number based on last image in gallery
         next_num = self._get_next_page_number()
         
+        # Decide if we should split into two pages
+        split_two = False
         if self.var_two_halves.get():
+            split_two = True
+        else:
+            try:
+                import numpy as np
+                arr = np.array(img.convert("RGB"))
+                if detect_two_pages(arr):
+                    split_two = True
+                    self.show_toast("↔ Detectadas dos páginas; guardando en dos archivos")
+            except Exception:
+                split_two = False
+
+        if split_two:
             w, h = img.size
             left = img.crop((0, 0, w//2, h)); right = img.crop((w//2, 0, w, h))
             # Izquierda = reverso, Derecha = anverso
