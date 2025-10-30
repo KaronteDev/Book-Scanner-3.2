@@ -422,6 +422,8 @@ class CalibrationDialog(tk.Toplevel):
             saved = get_calibration_for_camera(scan_frame.current_camera_idx, proj_name)
             if 'calib_area' in saved:
                 self.calib_area = saved['calib_area']
+            if 'target_dpi' in saved:
+                self.var_target_dpi.set(str(saved['target_dpi']))
         
         # Preview state
         self._preview_running = True
@@ -622,6 +624,12 @@ class CalibrationDialog(tk.Toplevel):
         if self.scan_frame.current_camera_idx is not None:
             proj_name = self.scan_frame.app.project.titulo if self.scan_frame.app.project else None
             save_calibration_for_camera(self.scan_frame.current_camera_idx, settings, proj_name)
+            
+            # Update calibration status label in main window
+            fmt = settings['paper_format']
+            dpi = settings['target_dpi']
+            self.scan_frame.lbl_calib_status.config(text=f"Calibración: {fmt} @ {dpi} DPI")
+            
             self.scan_frame.show_toast(f"✓ Calibración guardada")
         
         self.on_closing()
@@ -720,33 +728,24 @@ class ScanFrame(ttk.Frame):
         self.lbl_detect_status = ttk.Label(toolbar, text=f"Detección: 1/{self._detect_interval}")
         self.lbl_detect_status.grid(row=0, column=11, padx=(8,0))
         
-        # Second toolbar row: Processing options
+        # Second toolbar row: Calibration button only
         toolbar2 = ttk.Frame(scanner_frame)
         toolbar2.grid(row=1, column=0, sticky="ew", pady=(4,0))
-        toolbar2.columnconfigure(10, weight=1)
+        toolbar2.columnconfigure(1, weight=1)
         
-        # Auto-processing options
+        ttk.Button(toolbar2, text="⚙ Calibrar cámara y procesamiento", 
+                  command=self.open_calibration_dialog, width=35).grid(row=0, column=0, padx=6)
+        
+        # Status label for calibration
+        self.lbl_calib_status = ttk.Label(toolbar2, text="", foreground="#666666")
+        self.lbl_calib_status.grid(row=0, column=1, sticky="w", padx=12)
+        
+        # Initialize processing variables (will be set from calibration)
         self.var_auto_fingers = tk.BooleanVar(value=False)
-        ttk.Checkbutton(toolbar2, text="Eliminar dedos", variable=self.var_auto_fingers).grid(row=0, column=0, padx=(0,8))
-        
         self.var_auto_brightness = tk.BooleanVar(value=False)
-        ttk.Checkbutton(toolbar2, text="Auto brillo/contraste", variable=self.var_auto_brightness).grid(row=0, column=1, padx=8)
-        
         self.var_auto_crop = tk.BooleanVar(value=False)
-        ttk.Checkbutton(toolbar2, text="Auto recorte", variable=self.var_auto_crop).grid(row=0, column=2, padx=8)
-        
         self.var_dewarp = tk.BooleanVar(value=False)
-        ttk.Checkbutton(toolbar2, text="Corregir curvatura", variable=self.var_dewarp).grid(row=0, column=3, padx=8)
-        
-        # Paper format selection
-        ttk.Label(toolbar2, text="Formato:").grid(row=0, column=4, padx=(12,4))
         self.var_paper_format = tk.StringVar(value="A4")
-        self.cmb_paper_format = ttk.Combobox(toolbar2, textvariable=self.var_paper_format, 
-                                             values=list(PAPER_FORMATS.keys()), width=10, state="readonly")
-        self.cmb_paper_format.grid(row=0, column=5)
-        
-        ttk.Button(toolbar2, text="Calibrar", command=self.open_calibration_dialog).grid(row=0, column=6, padx=6)
-        ttk.Button(toolbar2, text="Guardar calibración", command=self.save_current_calibration).grid(row=0, column=7, padx=6)
         
         sliders = ttk.Frame(scanner_frame); sliders.grid(row=2, column=0, sticky="ew", pady=(6,4))
         ttk.Label(sliders, text="Brillo").grid(row=0, column=0, padx=(0,4))
@@ -841,6 +840,13 @@ class ScanFrame(ttk.Frame):
                 self.var_auto_crop.set(self.calibration_settings['auto_crop'])
             if 'dewarp' in self.calibration_settings:
                 self.var_dewarp.set(self.calibration_settings['dewarp'])
+            
+            # Update calibration status label
+            fmt = self.calibration_settings.get('paper_format', 'N/A')
+            dpi = self.calibration_settings.get('target_dpi', 'N/A')
+            self.lbl_calib_status.config(text=f"Calibración: {fmt} @ {dpi} DPI")
+        else:
+            self.lbl_calib_status.config(text="Sin calibración")
         
         self._preview_running = True; threading.Thread(target=self._loop_preview, daemon=True).start()
     
@@ -1079,30 +1085,52 @@ class ScanFrame(ttk.Frame):
             img.save(out_path, "JPEG", quality=92)
             self.show_toast(f"Guardada: {out_path.name}")
         self.refresh_gallery()
-        # Scroll to the last captured image
-        self.after(100, self._scroll_to_last_image)
+        # Scroll to the last captured image (wait for gallery to fully load)
+        self.after(300, self._scroll_to_last_image)
     
     def _scroll_to_last_image(self):
         """Scroll the gallery to show the last image."""
-        if len(self.gallery_images) > 0:
-            # Select the last image
-            last_idx = len(self.gallery_images) - 1
-            self.select_gallery_item(last_idx)
-            # Scroll to make it visible
-            if last_idx < len(self.gallery_frames):
-                frame = self.gallery_frames[last_idx]
-                self.gallery_canvas.update_idletasks()
-                # Get the position of the frame
-                bbox = self.gallery_canvas.bbox("all")
-                if bbox:
-                    frame_y = frame.winfo_y()
-                    canvas_h = self.gallery_canvas.winfo_height()
-                    # Scroll so the frame is visible at the bottom
-                    total_h = bbox[3] - bbox[1]
-                    if total_h > 0:
-                        scroll_fraction = (frame_y - canvas_h + frame.winfo_height() + 20) / total_h
+        if len(self.gallery_images) == 0:
+            return
+        
+        # Select the last image
+        last_idx = len(self.gallery_images) - 1
+        self.select_gallery_item(last_idx)
+        
+        # Force update of canvas layout
+        self.gallery_canvas.update_idletasks()
+        
+        # Scroll to bottom
+        if last_idx < len(self.gallery_frames):
+            # Update scroll region
+            self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all"))
+            
+            # Get scroll region dimensions
+            scroll_region = self.gallery_canvas.cget("scrollregion")
+            if scroll_region:
+                try:
+                    coords = [float(x) for x in scroll_region.split()]
+                    total_height = coords[3] - coords[1]
+                    canvas_height = self.gallery_canvas.winfo_height()
+                    
+                    if total_height > canvas_height:
+                        # Scroll to show the last item at the bottom
+                        frame = self.gallery_frames[last_idx]
+                        frame_y = frame.winfo_y()
+                        frame_h = frame.winfo_height()
+                        
+                        # Calculate scroll position to show item at bottom
+                        target_y = frame_y + frame_h - canvas_height + 10
+                        scroll_fraction = target_y / total_height
                         scroll_fraction = max(0.0, min(1.0, scroll_fraction))
+                        
                         self.gallery_canvas.yview_moveto(scroll_fraction)
+                    else:
+                        # All items fit, scroll to top
+                        self.gallery_canvas.yview_moveto(0)
+                except:
+                    # Fallback: just scroll to bottom
+                    self.gallery_canvas.yview_moveto(1.0)
     
     def _get_next_page_number(self):
         """Get the next page number based on existing images."""
@@ -1147,6 +1175,12 @@ class ScanFrame(ttk.Frame):
         
         proj_name = self.app.project.titulo if self.app.project else None
         save_calibration_for_camera(self.current_camera_idx, settings, proj_name)
+        
+        # Update calibration status label
+        fmt = self.var_paper_format.get()
+        dpi = settings.get('target_dpi', 'N/A')
+        self.lbl_calib_status.config(text=f"Calibración: {fmt} @ {dpi} DPI")
+        
         self.show_toast(f"✓ Calibración guardada para cámara {self.current_camera_idx}")
     
     def refresh_gallery(self):
