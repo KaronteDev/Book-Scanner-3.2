@@ -137,18 +137,47 @@ def detect_finger_regions(img_array):
         return None
     try:
         import numpy as np
-        # Convert to HSV for better skin detection
+        # Convert to YCrCb for better skin detection
+        ycrcb = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
+        
+        # Skin color range in YCrCb (more robust than HSV)
+        lower_skin = np.array([0, 133, 77], dtype=np.uint8)
+        upper_skin = np.array([255, 173, 127], dtype=np.uint8)
+        mask = cv2.inRange(ycrcb, lower_skin, upper_skin)
+        
+        # Also try HSV for complementary detection
         hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
-        # Skin color range in HSV (adjusted for various lighting)
-        lower_skin = np.array([0, 20, 70], dtype=np.uint8)
-        upper_skin = np.array([20, 255, 255], dtype=np.uint8)
-        mask = cv2.inRange(hsv, lower_skin, upper_skin)
+        lower_hsv = np.array([0, 15, 0], dtype=np.uint8)
+        upper_hsv = np.array([17, 170, 255], dtype=np.uint8)
+        mask_hsv = cv2.inRange(hsv, lower_hsv, upper_hsv)
+        
+        # Combine both masks
+        mask = cv2.bitwise_or(mask, mask_hsv)
+        
         # Morphological operations to clean up
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        return mask
-    except:
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        
+        # Find contours and filter by area (keep only significant regions)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Create new mask with only large enough contours (likely fingers/hands)
+        filtered_mask = np.zeros_like(mask)
+        min_area = img_array.shape[0] * img_array.shape[1] * 0.001  # 0.1% of image
+        max_area = img_array.shape[0] * img_array.shape[1] * 0.15   # 15% of image
+        
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if min_area < area < max_area:
+                cv2.drawContours(filtered_mask, [contour], -1, 255, -1)
+        
+        # Dilate to expand the mask slightly to cover edges
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        filtered_mask = cv2.dilate(filtered_mask, kernel_dilate, iterations=1)
+        
+        return filtered_mask
+    except Exception as e:
         return None
 
 def remove_fingers_inpaint(img_array, mask):
@@ -294,62 +323,312 @@ class CalibrationDialog(tk.Toplevel):
     def __init__(self, master, scan_frame):
         super().__init__(master)
         self.title("Calibración de cámara")
-        self.resizable(False, False)
+        self.geometry("1200x700")
         self.scan_frame = scan_frame
         
-        frm = ttk.Frame(self, padding=16)
-        frm.grid(row=0, column=0, sticky="nsew")
+        # Main container
+        main_frame = ttk.Frame(self, padding=10)
+        main_frame.pack(fill="both", expand=True)
         
-        ttk.Label(frm, text="Configuración de captura y procesamiento", 
-                 font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=2, pady=(0,12), sticky="w")
+        # Left panel: Camera preview
+        left_frame = ttk.Frame(main_frame)
+        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
         
-        # Paper format
-        ttk.Label(frm, text="Formato de papel:").grid(row=1, column=0, sticky="w", pady=4)
-        format_frame = ttk.Frame(frm)
-        format_frame.grid(row=1, column=1, sticky="w", pady=4)
-        for i, fmt in enumerate(PAPER_FORMATS.keys()):
-            ttk.Radiobutton(format_frame, text=fmt, value=fmt, 
-                           variable=scan_frame.var_paper_format).grid(row=0, column=i, padx=4)
+        ttk.Label(left_frame, text="Vista previa - Ajuste el área de captura", 
+                 font=("Segoe UI", 10, "bold")).pack(pady=(0,5))
+        
+        self.canvas = tk.Canvas(left_frame, width=800, height=600, bg="#111")
+        self.canvas.pack()
+        
+        # Instructions
+        inst_text = "Arrastra las esquinas del rectángulo para ajustar el área de captura según el formato seleccionado"
+        ttk.Label(left_frame, text=inst_text, wraplength=780).pack(pady=5)
+        
+        # Right panel: Controls
+        right_frame = ttk.Frame(main_frame, width=350)
+        right_frame.pack(side="right", fill="y")
+        right_frame.pack_propagate(False)
+        
+        ttk.Label(right_frame, text="Configuración de captura", 
+                 font=("Segoe UI", 10, "bold")).pack(pady=(0,12), anchor="w")
+        
+        # Paper format with DPI info
+        format_frame = ttk.LabelFrame(right_frame, text="Formato de papel", padding=10)
+        format_frame.pack(fill="x", pady=(0,10))
+        
+        self.var_format = scan_frame.var_paper_format
+        for fmt, size in PAPER_FORMATS.items():
+            if size:
+                text = f"{fmt} ({size[0]}x{size[1]} mm)"
+            else:
+                text = fmt
+            ttk.Radiobutton(format_frame, text=text, value=fmt, 
+                           variable=self.var_format,
+                           command=self.on_format_changed).pack(anchor="w", pady=2)
+        
+        # DPI settings
+        dpi_frame = ttk.LabelFrame(right_frame, text="Resolución", padding=10)
+        dpi_frame.pack(fill="x", pady=(0,10))
+        
+        ttk.Label(dpi_frame, text="DPI objetivo:").pack(anchor="w")
+        self.var_target_dpi = tk.StringVar(value="300")
+        dpi_combo = ttk.Combobox(dpi_frame, textvariable=self.var_target_dpi, 
+                                 values=["150", "200", "300", "400", "600"], 
+                                 width=10, state="readonly")
+        dpi_combo.pack(anchor="w", pady=(2,5))
+        dpi_combo.bind('<<ComboboxSelected>>', lambda e: self.update_dpi_info())
+        
+        self.lbl_dpi_info = ttk.Label(dpi_frame, text="", foreground="#0066cc")
+        self.lbl_dpi_info.pack(anchor="w")
         
         # Processing options
-        ttk.Label(frm, text="Procesamiento automático:", 
-                 font=("Segoe UI", 9, "bold")).grid(row=2, column=0, columnspan=2, pady=(12,4), sticky="w")
+        proc_frame = ttk.LabelFrame(right_frame, text="Procesamiento automático", padding=10)
+        proc_frame.pack(fill="x", pady=(0,10))
         
-        ttk.Checkbutton(frm, text="Eliminar dedos y soportes visibles", 
-                       variable=scan_frame.var_auto_fingers).grid(row=3, column=0, columnspan=2, sticky="w", pady=2)
+        ttk.Checkbutton(proc_frame, text="Eliminar dedos", 
+                       variable=scan_frame.var_auto_fingers).pack(anchor="w", pady=2)
         
-        ttk.Checkbutton(frm, text="Ajuste automático de brillo y contraste", 
-                       variable=scan_frame.var_auto_brightness).grid(row=4, column=0, columnspan=2, sticky="w", pady=2)
+        ttk.Checkbutton(proc_frame, text="Auto brillo/contraste", 
+                       variable=scan_frame.var_auto_brightness).pack(anchor="w", pady=2)
         
-        ttk.Checkbutton(frm, text="Recorte automático al área del documento", 
-                       variable=scan_frame.var_auto_crop).grid(row=5, column=0, columnspan=2, sticky="w", pady=2)
+        ttk.Checkbutton(proc_frame, text="Auto recorte", 
+                       variable=scan_frame.var_auto_crop).pack(anchor="w", pady=2)
         
-        ttk.Checkbutton(frm, text="Corrección de curvatura de página", 
-                       variable=scan_frame.var_dewarp).grid(row=6, column=0, columnspan=2, sticky="w", pady=2)
-        
-        # Manual adjustments
-        ttk.Label(frm, text="Ajustes manuales:", 
-                 font=("Segoe UI", 9, "bold")).grid(row=7, column=0, columnspan=2, pady=(12,4), sticky="w")
-        
-        ttk.Label(frm, text="Brillo:").grid(row=8, column=0, sticky="w", pady=4)
-        ttk.Scale(frm, variable=scan_frame.s_brightness, from_=0.5, to=1.5, 
-                 orient="horizontal", length=200).grid(row=8, column=1, sticky="ew", pady=4)
-        
-        ttk.Label(frm, text="Contraste:").grid(row=9, column=0, sticky="w", pady=4)
-        ttk.Scale(frm, variable=scan_frame.s_contrast, from_=0.5, to=1.5, 
-                 orient="horizontal", length=200).grid(row=9, column=1, sticky="ew", pady=4)
+        ttk.Checkbutton(proc_frame, text="Corregir curvatura", 
+                       variable=scan_frame.var_dewarp).pack(anchor="w", pady=2)
         
         # Buttons
-        btns = ttk.Frame(frm)
-        btns.grid(row=10, column=0, columnspan=2, pady=(16,0), sticky="e")
-        ttk.Button(btns, text="Guardar y cerrar", command=self.save_and_close).grid(row=0, column=0, padx=4)
-        ttk.Button(btns, text="Cancelar", command=self.destroy).grid(row=0, column=1, padx=4)
+        btn_frame = ttk.Frame(right_frame)
+        btn_frame.pack(side="bottom", fill="x", pady=(10,0))
+        
+        ttk.Button(btn_frame, text="Guardar y cerrar", 
+                  command=self.save_and_close).pack(side="top", fill="x", pady=2)
+        ttk.Button(btn_frame, text="Restablecer", 
+                  command=self.reset_area).pack(side="top", fill="x", pady=2)
+        ttk.Button(btn_frame, text="Cancelar", 
+                  command=self.destroy).pack(side="top", fill="x", pady=2)
+        
+        # Calibration area (corners in percentage of image)
+        self.calib_area = {
+            'tl': [0.1, 0.1],  # top-left
+            'tr': [0.9, 0.1],  # top-right
+            'br': [0.9, 0.9],  # bottom-right
+            'bl': [0.1, 0.9]   # bottom-left
+        }
+        
+        # Load saved calibration if exists
+        if scan_frame.current_camera_idx is not None:
+            proj_name = scan_frame.app.project.titulo if scan_frame.app.project else None
+            saved = get_calibration_for_camera(scan_frame.current_camera_idx, proj_name)
+            if 'calib_area' in saved:
+                self.calib_area = saved['calib_area']
+        
+        # Preview state
+        self._preview_running = True
+        self._preview_img = None
+        self._dragging = None
+        self._canvas_items = []
+        
+        # Bind mouse events for dragging corners
+        self.canvas.bind("<Button-1>", self.on_mouse_down)
+        self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        
+        # Start preview thread
+        threading.Thread(target=self._preview_loop, daemon=True).start()
         
         self.grab_set()
         self.transient(master)
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Initial format update
+        self.on_format_changed()
+    
+    def _preview_loop(self):
+        """Capture and display camera preview with calibration overlay."""
+        while self._preview_running:
+            if self.scan_frame.cap is None or not self.scan_frame.cap.isOpened():
+                time.sleep(0.1)
+                continue
+            
+            ret, frame = self.scan_frame.cap.read()
+            if not ret:
+                time.sleep(0.02)
+                continue
+            
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            self._preview_img = Image.fromarray(frame_rgb)
+            
+            # Schedule UI update on main thread
+            self.after(0, self._draw_preview)
+            time.sleep(0.03)  # ~30 FPS
+    
+    def _draw_preview(self):
+        """Draw preview with calibration rectangle overlay."""
+        if self._preview_img is None:
+            return
+        
+        # Resize to fit canvas
+        img = self._preview_img.copy()
+        img.thumbnail((800, 600), Image.LANCZOS)
+        
+        # Convert to PhotoImage
+        photo = ImageTk.PhotoImage(img)
+        
+        # Update canvas
+        self.canvas.delete("all")
+        cw, ch = 800, 600
+        iw, ih = photo.width(), photo.height()
+        x = (cw - iw) // 2
+        y = (ch - ih) // 2
+        
+        self.canvas.create_image(x, y, anchor="nw", image=photo)
+        self.canvas._photo = photo  # Keep reference
+        
+        # Draw calibration area
+        corners_px = {
+            'tl': (x + int(self.calib_area['tl'][0] * iw), y + int(self.calib_area['tl'][1] * ih)),
+            'tr': (x + int(self.calib_area['tr'][0] * iw), y + int(self.calib_area['tr'][1] * ih)),
+            'br': (x + int(self.calib_area['br'][0] * iw), y + int(self.calib_area['br'][1] * ih)),
+            'bl': (x + int(self.calib_area['bl'][0] * iw), y + int(self.calib_area['bl'][1] * ih))
+        }
+        
+        # Draw rectangle
+        points = [corners_px['tl'], corners_px['tr'], corners_px['br'], corners_px['bl']]
+        flat = [coord for pt in points for coord in pt]
+        self.canvas.create_polygon(*flat, outline="#00ff00", width=3, fill="", dash=(10, 5))
+        
+        # Draw corner handles
+        for corner_name, (cx, cy) in corners_px.items():
+            r = 8
+            self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, 
+                                   fill="#00ff00", outline="#ffffff", width=2,
+                                   tags=corner_name)
+    
+    def on_mouse_down(self, event):
+        """Start dragging a corner if clicked."""
+        # Check if clicked near a corner
+        for corner_name in ['tl', 'tr', 'br', 'bl']:
+            items = self.canvas.find_withtag(corner_name)
+            if items:
+                coords = self.canvas.coords(items[0])
+                cx, cy = (coords[0] + coords[2]) / 2, (coords[1] + coords[3]) / 2
+                dist = ((event.x - cx)**2 + (event.y - cy)**2)**0.5
+                if dist < 15:
+                    self._dragging = corner_name
+                    break
+    
+    def on_mouse_drag(self, event):
+        """Update corner position while dragging."""
+        if self._dragging and self._preview_img:
+            img = self._preview_img.copy()
+            img.thumbnail((800, 600), Image.LANCZOS)
+            iw, ih = img.width, img.height
+            cw, ch = 800, 600
+            x_offset = (cw - iw) // 2
+            y_offset = (ch - ih) // 2
+            
+            # Convert canvas coordinates to relative position
+            rel_x = max(0, min(1, (event.x - x_offset) / iw))
+            rel_y = max(0, min(1, (event.y - y_offset) / ih))
+            
+            self.calib_area[self._dragging] = [rel_x, rel_y]
+            self.update_dpi_info()
+    
+    def on_mouse_up(self, event):
+        """Stop dragging."""
+        self._dragging = None
+    
+    def on_format_changed(self):
+        """Adjust calibration area based on selected format."""
+        fmt = self.var_format.get()
+        if fmt in PAPER_FORMATS and PAPER_FORMATS[fmt] is not None:
+            w_mm, h_mm = PAPER_FORMATS[fmt]
+            # Calculate aspect ratio
+            aspect = w_mm / h_mm
+            
+            # Adjust rectangle to match aspect ratio (centered)
+            center_x, center_y = 0.5, 0.5
+            width = 0.7
+            height = width / aspect
+            
+            if height > 0.8:
+                height = 0.8
+                width = height * aspect
+            
+            self.calib_area = {
+                'tl': [center_x - width/2, center_y - height/2],
+                'tr': [center_x + width/2, center_y - height/2],
+                'br': [center_x + width/2, center_y + height/2],
+                'bl': [center_x - width/2, center_y + height/2]
+            }
+        self.update_dpi_info()
+    
+    def update_dpi_info(self):
+        """Calculate and display actual DPI based on calibration area."""
+        try:
+            if self._preview_img is None:
+                return
+            
+            img_w, img_h = self._preview_img.size
+            
+            # Calculate pixel dimensions of calibration area
+            tl = self.calib_area['tl']
+            br = self.calib_area['br']
+            px_w = abs(br[0] - tl[0]) * img_w
+            px_h = abs(br[1] - tl[1]) * img_h
+            
+            # Get paper dimensions
+            fmt = self.var_format.get()
+            if fmt in PAPER_FORMATS and PAPER_FORMATS[fmt]:
+                mm_w, mm_h = PAPER_FORMATS[fmt]
+                # Convert mm to inches
+                inch_w = mm_w / 25.4
+                inch_h = mm_h / 25.4
+                
+                # Calculate actual DPI
+                dpi_w = px_w / inch_w
+                dpi_h = px_h / inch_h
+                dpi_avg = (dpi_w + dpi_h) / 2
+                
+                self.lbl_dpi_info.config(text=f"DPI actual: {dpi_avg:.0f}\n({px_w:.0f}x{px_h:.0f} px)")
+            else:
+                self.lbl_dpi_info.config(text=f"Área: {px_w:.0f}x{px_h:.0f} px")
+        except:
+            pass
+    
+    def reset_area(self):
+        """Reset calibration area to default."""
+        self.calib_area = {
+            'tl': [0.1, 0.1],
+            'tr': [0.9, 0.1],
+            'br': [0.9, 0.9],
+            'bl': [0.1, 0.9]
+        }
+        self.on_format_changed()
     
     def save_and_close(self):
-        self.scan_frame.save_current_calibration()
+        """Save calibration and close dialog."""
+        settings = {
+            'paper_format': self.var_format.get(),
+            'auto_fingers': self.scan_frame.var_auto_fingers.get(),
+            'auto_brightness': self.scan_frame.var_auto_brightness.get(),
+            'auto_crop': self.scan_frame.var_auto_crop.get(),
+            'dewarp': self.scan_frame.var_dewarp.get(),
+            'target_dpi': int(self.var_target_dpi.get()),
+            'calib_area': self.calib_area
+        }
+        
+        if self.scan_frame.current_camera_idx is not None:
+            proj_name = self.scan_frame.app.project.titulo if self.scan_frame.app.project else None
+            save_calibration_for_camera(self.scan_frame.current_camera_idx, settings, proj_name)
+            self.scan_frame.show_toast(f"✓ Calibración guardada")
+        
+        self.on_closing()
+    
+    def on_closing(self):
+        """Stop preview and close."""
+        self._preview_running = False
         self.destroy()
 
 class StartFrame(ttk.Frame):
@@ -715,6 +994,24 @@ class ScanFrame(ttk.Frame):
         
         # Convert to RGB for processing
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Apply calibrated area crop if available
+        if self.calibration_settings and 'calib_area' in self.calibration_settings:
+            try:
+                import numpy as np
+                h, w = frame_rgb.shape[:2]
+                area = self.calibration_settings['calib_area']
+                
+                # Get coordinates
+                x1 = int(area['tl'][0] * w)
+                y1 = int(area['tl'][1] * h)
+                x2 = int(area['br'][0] * w)
+                y2 = int(area['br'][1] * h)
+                
+                # Crop to calibrated area
+                frame_rgb = frame_rgb[y1:y2, x1:x2]
+            except Exception:
+                pass  # If crop fails, use full frame
         
         # Apply auto-processing if enabled
         processed_frame = frame_rgb.copy()

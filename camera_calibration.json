@@ -1,0 +1,11 @@
+{
+  "cam_0_pp": {
+    "paper_format": "A4",
+    "auto_fingers": true,
+    "auto_brightness": true,
+    "auto_crop": true,
+    "dewarp": true,
+    "brightness": 1.0,
+    "contrast": 1.0
+  }
+}
