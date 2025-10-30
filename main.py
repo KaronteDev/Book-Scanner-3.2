@@ -154,9 +154,8 @@ class ModuleSelectorApp:
     def open_scanner(self):
         """Launch scanner module"""
         try:
-            from gui.scan_view import ScannerWindow
-            scanner_win = tk.Toplevel(self.root)
-            ScannerWindow(scanner_win)
+            from gui.scanner_module import ScannerWindow
+            scanner_win = ScannerWindow(self.root)
         except Exception as e:
             messagebox.showerror(
                 "Error",

@@ -46,9 +46,6 @@ class ScannerWindow:
 
         # Import existing scanner GUI
         try:
-            # Import the main scanner class from existing code
-            import gui_book_scan_tk2
-            
             # For now, show placeholder
             frame = ttk.Frame(root, padding=20)
             frame.pack(fill=tk.BOTH, expand=True)
@@ -108,25 +105,18 @@ class ScannerWindow:
             messagebox.showerror("Error", f"No se pudo cargar el módulo:\n{str(e)}")
     
     def open_existing_scanner(self):
-        """Launch the existing scanner GUI"""
+        """Launch the new modular scanner"""
         try:
-            import subprocess
-            import os
+            from gui.scanner_module import ScannerWindow
             
-            scanner_path = Path(__file__).parent.parent / "gui_book_scan_tk2.py"
+            # Get current project directory if available
+            project_dir = None
+            if self.current_project:
+                project_dir = Path(self.current_project['carpeta_raiz'])
             
-            if scanner_path.exists():
-                # Launch in new process
-                subprocess.Popen([sys.executable, str(scanner_path)])
-                messagebox.showinfo(
-                    "Escáner",
-                    "Se ha abierto el escáner en una ventana separada"
-                )
-            else:
-                messagebox.showerror(
-                    "Error",
-                    "No se encontró gui_book_scan_tk2.py"
-                )
+            # Open scanner window
+            scanner_win = ScannerWindow(self.root, project_dir)
+            
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir el escáner:\n{str(e)}")
 

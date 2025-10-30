@@ -428,7 +428,7 @@ class AnnotationWindow:
         left.config(state=tk.NORMAL); right.config(state=tk.NORMAL)
 
     def _vh_apply_b_to_corrected(self, top):
-        """Load the selected B version into the OCR Corregido editor."""
+        """Load the selected B version into the OCR Corregido editor and save automatically."""
         b = self._vh_combo_b.get()
         if not b:
             return
@@ -437,8 +437,27 @@ class AnnotationWindow:
         if not row_b:
             return
         text = row_b.get('text_content') or ''
+        # Confirm with user
+        if not messagebox.askyesno(
+            "Aplicar y guardar",
+            f"¿Aplicar versión {row_b.get('version_type')} a OCR Corregido y guardar automáticamente?\n\n"
+            f"Idioma: {row_b.get('language') or ''}\n"
+            f"Fecha: {row_b.get('created_at')}"
+        ):
+            return
+        # Load into editor
         self.text_ocr_corrected.delete('1.0', tk.END)
         self.text_ocr_corrected.insert('1.0', text)
+        # Save to database
+        if getattr(self, 'pages', None) and self.page_index >= 0:
+            page = self.pages[self.page_index]
+            project_dir = Path(self.current_project['carpeta_raiz'])
+            vid = save_ocr_version(project_dir, page['id'], 'ocr_corregido', text)
+            self.status_bar['text'] = f"Versión aplicada y guardada (v{vid})"
+            self.refresh_ocr_versions()
+            messagebox.showinfo("Guardado", f"Corrección guardada como versión {vid}")
+        else:
+            messagebox.showwarning("Guardar", "No se pudo guardar: página no válida")
 
     def _vh_apply_b_to_editor(self, top):
         """Load the selected B version into the main OCR Original editor and refresh labels/comparator."""
@@ -450,6 +469,15 @@ class AnnotationWindow:
         if not row_b:
             return
         text = row_b.get('text_content') or ''
+        # Confirm with user
+        if not messagebox.askyesno(
+            "Aplicar versión",
+            f"¿Cargar versión {row_b.get('version_type')} en OCR Original?\n\n"
+            f"Idioma: {row_b.get('language') or ''}\n"
+            f"Fecha: {row_b.get('created_at')}\n\n"
+            f"Nota: Esto NO guardará automáticamente."
+        ):
+            return
         self.text_ocr_original.delete('1.0', tk.END)
         self.text_ocr_original.insert('1.0', text)
         info = f"Versión: {row_b.get('version_type')} · {row_b.get('language') or ''} · {row_b.get('confidence') or ''} · {row_b.get('created_at')}"
