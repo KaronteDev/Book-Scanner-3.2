@@ -646,25 +646,31 @@ class StartFrame(ttk.Frame):
         ttk.Label(self, text=f"{APP_NAME} — {APP_VERSION}", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, pady=12)
         ttk.Label(self, text="Seleccione un módulo:").grid(row=1, column=0, pady=(0,12))
         buttons = ttk.Frame(self); buttons.grid(row=2, column=0, pady=12)
-        ttk.Button(buttons, text="Escáner", command=lambda: app.show_frame("scan")).grid(row=0, column=0, padx=10)
-        ttk.Button(buttons, text="Anotaciones", command=lambda: app.show_frame("annot")).grid(row=0, column=1, padx=10)
+        ttk.Button(buttons, text="📷 Módulo Escáner", command=app.open_scanner_window, width=22).grid(row=0, column=0, padx=10)
+        ttk.Button(buttons, text="📝 Módulo Anotador", command=app.open_annotation_window, width=22).grid(row=0, column=1, padx=10)
         ttk.Label(self, text="Proyecto activo:", font=("Segoe UI", 10, "bold")).grid(row=3, column=0, pady=(20,4), sticky="w")
         self.lbl_proj = ttk.Label(self, text=self.app.project_summary()); self.lbl_proj.grid(row=4, column=0, sticky="w")
         ttk.Button(self, text="Configurar REST…", command=self.app.open_rest_config).grid(row=5, column=0, pady=10, sticky="w")
     def refresh(self):
         self.lbl_proj.config(text=self.app.project_summary())
 
-class ScanFrame(ttk.Frame):
+class ScannerWindow(tk.Toplevel):
     def __init__(self, master, app):
-        super().__init__(master, padding=8)
+        super().__init__(master)
+        self.title(f"{APP_NAME} — Módulo Escáner")
+        self.geometry("1400x800")
         self.app = app
         
+        # Main frame
+        main_frame = ttk.Frame(self, padding=8)
+        main_frame.pack(fill="both", expand=True)
+        
         # Main container with left gallery and right scanner
-        self.columnconfigure(1, weight=1)
-        self.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(0, weight=1)
         
         # LEFT PANEL: Gallery
-        gallery_frame = ttk.Frame(self, width=200)
+        gallery_frame = ttk.Frame(main_frame, width=200)
         gallery_frame.grid(row=0, column=0, sticky="nsew", padx=(0,8))
         gallery_frame.rowconfigure(1, weight=1)
         
@@ -694,7 +700,7 @@ class ScanFrame(ttk.Frame):
         ttk.Button(btn_frame, text="🗑", width=3, command=self.delete_image).grid(row=0, column=2, padx=2)
         
         # RIGHT PANEL: Scanner controls
-        scanner_frame = ttk.Frame(self)
+        scanner_frame = ttk.Frame(main_frame)
         scanner_frame.grid(row=0, column=1, sticky="nsew")
         scanner_frame.rowconfigure(2, weight=1)
         scanner_frame.columnconfigure(0, weight=1)
@@ -782,15 +788,19 @@ class ScanFrame(ttk.Frame):
         self._show_camera_off_screen()
         # Auto-connect to first camera if available
         self.after(500, self._auto_connect_camera)
+        
+        # Handle window close
+        self.protocol("WM_DELETE_WINDOW", self.on_window_close)
+    
+    def on_window_close(self):
+        """Clean up camera before closing window."""
+        self.close_camera()
+        self.destroy()
     
     def _auto_connect_camera(self):
         """Automatically connect to the first available camera."""
         if cv2 is not None and self.cap is None and len(self.camera_map) > 0:
             self.open_camera()
-    
-    def on_show(self):
-        """Called when frame is shown - refresh gallery to load images."""
-        self.refresh_gallery()
     
     def refresh_cameras(self):
         cams = detect_cameras()
@@ -818,10 +828,10 @@ class ScanFrame(ttk.Frame):
             try:
                 idx = int(sel)
             except Exception:
-                messagebox.showerror("Cámara", "Seleccione una cámara válida."); return
+                messagebox.showerror("Cámara", "Seleccione una cámara válida.", parent=self); return
         self.cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) if sys.platform.startswith("win") else cv2.VideoCapture(idx)
         if not self.cap.isOpened():
-            messagebox.showerror("Cámara", f"No se pudo abrir la cámara {idx}."); self.cap.release(); self.cap=None; return
+            messagebox.showerror("Cámara", f"No se pudo abrir la cámara {idx}.", parent=self); self.cap.release(); self.cap=None; return
         
         # Store current camera index and load calibration
         self.current_camera_idx = idx
@@ -996,7 +1006,7 @@ class ScanFrame(ttk.Frame):
             self.show_toast("⚠ Cámara no disponible"); return
         ret, frame = self.cap.read()
         if not ret:
-            messagebox.showerror("Captura", "No se pudo capturar imagen."); return
+            messagebox.showerror("Captura", "No se pudo capturar imagen.", parent=self); return
         
         # Convert to RGB for processing
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -1316,12 +1326,12 @@ class ScanFrame(ttk.Frame):
             return
         idx = self.selected_gallery_idx
         img_path = self.gallery_images[idx]
-        if messagebox.askyesno("Borrar", f"¿Borrar {img_path.name}?"):
+        if messagebox.askyesno("Borrar", f"¿Borrar {img_path.name}?", parent=self):
             try:
                 img_path.unlink()
                 self.show_toast(f"Borrada: {img_path.name}")
             except Exception as e:
-                messagebox.showerror("Error", f"No se pudo borrar: {e}")
+                messagebox.showerror("Error", f"No se pudo borrar: {e}", parent=self)
             self.refresh_gallery()
     
     def on_drag_start(self, event, idx):
@@ -1396,7 +1406,7 @@ class ScanFrame(ttk.Frame):
             lbl.image = photo  # keep reference
             lbl.pack(expand=True)
         except Exception as e:
-            messagebox.showerror("Preview", f"Error al abrir imagen: {e}")
+            messagebox.showerror("Preview", f"Error al abrir imagen: {e}", parent=self)
     def bind_all_shortcuts(self):
         self.bind_all("<space>", lambda e: self.capture())
         self.bind_all("<Control-s>", lambda e: self.capture())
@@ -1477,7 +1487,7 @@ class ScanFrame(ttk.Frame):
             return
         ret, frame_bgr = self.cap.read()
         if not ret or frame_bgr is None:
-            messagebox.showerror("Recortar", "No se pudo leer frame de la cámara.")
+            messagebox.showerror("Recortar", "No se pudo leer frame de la cámara.", parent=self)
             return
         # Use RGB copy for detection helper which expects RGB
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
@@ -1491,7 +1501,7 @@ class ScanFrame(ttk.Frame):
             return
         ordered = self._order_points(pts)
         if len(ordered) != 4:
-            messagebox.showerror("Recortar", "No se pudo ordenar los puntos de la página detectada.")
+            messagebox.showerror("Recortar", "No se pudo ordenar los puntos de la página detectada.", parent=self)
             return
         # Compute destination size
         (tl, tr, br, bl) = ordered
@@ -1505,7 +1515,7 @@ class ScanFrame(ttk.Frame):
         heightB = dist(tl, bl)
         maxHeight = max(int(heightA), int(heightB))
         if maxWidth <= 0 or maxHeight <= 0:
-            messagebox.showerror("Recortar", "Dimensiones inválidas para recorte.")
+            messagebox.showerror("Recortar", "Dimensiones inválidas para recorte.", parent=self)
             return
         try:
             import numpy as np
@@ -1530,22 +1540,26 @@ class ScanFrame(ttk.Frame):
             self.show_toast(f"Recorte guardado: {out_path.name}")
             self.refresh_gallery()
         except Exception as e:
-            messagebox.showerror("Recortar", f"Error realizando recorte: {e}")
+            messagebox.showerror("Recortar", f"Error realizando recorte: {e}", parent=self)
 
-class AnnotationFrame(ttk.Frame):
+class AnnotationWindow(tk.Toplevel):
     def __init__(self, master, app):
-        super().__init__(master, padding=16)
+        super().__init__(master)
+        self.title(f"{APP_NAME} — Módulo Anotador")
+        self.geometry("1100x780")
         self.app = app
-        ttk.Label(self, text="Módulo de Anotaciones (placeholder estable)", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(self, text="Aquí irá el visor, editor WYSIWYG, geolocalización y enlaces a Topónimos/Personas.").grid(row=1, column=0, sticky="w")
-        ttk.Button(self, text="Volver", command=lambda: self.app.show_frame("start")).grid(row=2, column=0, pady=8, sticky="w")
-    def on_show(self): pass
-    def on_hide(self): pass
+        
+        # Main frame
+        main_frame = ttk.Frame(self, padding=16)
+        main_frame.pack(fill="both", expand=True)
+        
+        ttk.Label(main_frame, text="Módulo de Anotaciones (placeholder estable)", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(main_frame, text="Aquí irá el visor, editor WYSIWYG, geolocalización y enlaces a Topónimos/Personas.").grid(row=1, column=0, sticky="w")
 
 class GeoDocsScannerApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} — {APP_VERSION}"); self.geometry("1100x780"); self.minsize(900, 640)
+        self.title(f"{APP_NAME} — {APP_VERSION}"); self.geometry("800x600"); self.minsize(700, 500)
         self.project: Optional[ProjectInfo] = None
         init_global_db(Path.cwd())
         
@@ -1556,18 +1570,22 @@ class GeoDocsScannerApp(tk.Tk):
             self.destroy()
             return
         
+        # Track child windows
+        self.scanner_window = None
+        self.annotation_window = None
+        
         self._build_menu()
         container = ttk.Frame(self); container.pack(fill="both", expand=True)
-        self.frames = {"start": StartFrame(container, self), "scan": ScanFrame(container, self), "annot": AnnotationFrame(container, self)}
-        for f in self.frames.values(): f.grid(row=0, column=0, sticky="nsew")
+        self.start_frame = StartFrame(container, self)
+        self.start_frame.pack(fill="both", expand=True)
         
         # Load last project if exists
         self._load_last_project()
         
-        self.show_frame("start")
         self.bind_all("<Control-n>", lambda e: self.new_project())
         self.bind_all("<Control-o>", lambda e: self.open_project())
-        self.bind_all("<F6>", lambda e: self.toggle_frames())
+        self.bind_all("<F6>", lambda e: self.open_scanner_window())
+        self.bind_all("<F7>", lambda e: self.open_annotation_window())
         
         # Release lock on close
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
@@ -1580,19 +1598,29 @@ class GeoDocsScannerApp(tk.Tk):
         m_file.add_separator(); m_file.add_command(label="Salir", command=self.quit_app)
         menubar.add_cascade(label="Archivo", menu=m_file)
         m_view = tk.Menu(menubar, tearoff=0)
-        m_view.add_command(label="Escáner", command=lambda: self.show_frame("scan"))
-        m_view.add_command(label="Anotaciones", command=lambda: self.show_frame("annot"))
+        m_view.add_command(label="📷 Abrir Escáner (F6)", command=self.open_scanner_window)
+        m_view.add_command(label="📝 Abrir Anotador (F7)", command=self.open_annotation_window)
         menubar.add_cascade(label="Ver", menu=m_view)
         self.config(menu=menubar)
-    def show_frame(self, name: str):
-        for key, frame in self.frames.items():
-            if key == name:
-                frame.tkraise(); getattr(frame, "on_show", lambda: None)()
-            else:
-                getattr(frame, "on_hide", lambda: None)()
-        if name == "start": self.frames["start"].refresh()
-    def toggle_frames(self):
-        current = self.frames["scan"].winfo_ismapped(); self.show_frame("annot" if current else "scan")
+    
+    def open_scanner_window(self):
+        """Open or focus the scanner window."""
+        if self.scanner_window is None or not self.scanner_window.winfo_exists():
+            self.scanner_window = ScannerWindow(self, self)
+            # Refresh gallery after window is created if project is loaded
+            if self.project:
+                self.scanner_window.after(100, self.scanner_window.refresh_gallery)
+        else:
+            self.scanner_window.lift()
+            self.scanner_window.focus_force()
+    
+    def open_annotation_window(self):
+        """Open or focus the annotation window."""
+        if self.annotation_window is None or not self.annotation_window.winfo_exists():
+            self.annotation_window = AnnotationWindow(self, self)
+        else:
+            self.annotation_window.lift()
+            self.annotation_window.focus_force()
     def new_project(self):
         import tkinter.simpledialog as simpledialog
         title = simpledialog.askstring("Nuevo proyecto", "Título del documento:")
@@ -1603,8 +1631,10 @@ class GeoDocsScannerApp(tk.Tk):
         pinfo = ProjectInfo(titulo=title, carpeta_raiz=proj_path); self.project = pinfo
         self._save_project_to_global_db(pinfo)
         self._save_last_project(proj_path)
-        self.frames["scan"].show_toast(f"✓ Proyecto creado: {pinfo.titulo}")
-        self.show_frame("scan")
+        self.start_frame.refresh()
+        messagebox.showinfo("Proyecto", f"✓ Proyecto creado: {pinfo.titulo}")
+        self.open_scanner_window()
+    
     def open_project(self):
         root_dir = filedialog.askdirectory(title="Seleccione carpeta del proyecto")
         if not root_dir: return
@@ -1613,8 +1643,9 @@ class GeoDocsScannerApp(tk.Tk):
             messagebox.showerror("Proyecto", "Carpeta inválida: no contiene 'paginas/'."); return
         title = proj_path.name; self.project = ProjectInfo(titulo=title, carpeta_raiz=proj_path)
         self._save_last_project(proj_path)
-        self.frames["scan"].show_toast(f"✓ Proyecto abierto: {title}")
-        self.show_frame("scan")
+        self.start_frame.refresh()
+        messagebox.showinfo("Proyecto", f"✓ Proyecto abierto: {title}")
+        self.open_scanner_window()
     def _save_project_to_global_db(self, proj: ProjectInfo):
         dbp = Path.cwd() / GLOBAL_DB; conn = sqlite3.connect(dbp); cur = conn.cursor()
         cur.execute("""INSERT INTO proyectos (titulo, signatura, tipo_documento, autor, tema, etiquetas, fecha, carpeta_raiz)
@@ -1691,8 +1722,7 @@ class GeoDocsScannerApp(tk.Tk):
                 if proj_path.exists() and (proj_path / "paginas").exists():
                     title = proj_path.name
                     self.project = ProjectInfo(titulo=title, carpeta_raiz=proj_path)
-                    # Refresh gallery after loading project
-                    self.after(100, lambda: self.frames["scan"].refresh_gallery())
+                    self.start_frame.refresh()
         except Exception:
             pass
 
