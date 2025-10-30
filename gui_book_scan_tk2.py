@@ -87,7 +87,8 @@ def init_global_db(base: Path) -> None:
     conn.commit()
     conn.close()
 
-def detect_cameras(max_index: int = 8) -> List[int]:
+def detect_cameras(max_index: int = 8) -> List[tuple]:
+    """Detect available cameras and return list of (index, name) tuples."""
     if cv2 is None:
         return []
     found = []
@@ -95,7 +96,26 @@ def detect_cameras(max_index: int = 8) -> List[int]:
         cap = cv2.VideoCapture(i, cv2.CAP_DSHOW) if sys.platform.startswith("win") else cv2.VideoCapture(i)
         ok = cap.isOpened()
         if ok:
-            found.append(i)
+            # Try to get camera name
+            name = f"Cámara {i}"
+            try:
+                # On Windows with DSHOW, try to get more info
+                if sys.platform.startswith("win"):
+                    # Try to read a frame to ensure camera is working
+                    ret, _ = cap.read()
+                    if ret:
+                        # Get frame dimensions as additional info
+                        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        name = f"Cámara {i} ({w}x{h})"
+                else:
+                    # Try to get backend name on other platforms
+                    backend = cap.getBackendName() if hasattr(cap, 'getBackendName') else ""
+                    if backend:
+                        name = f"Cámara {i} ({backend})"
+            except:
+                pass
+            found.append((i, name))
         cap.release()
     return found
 
@@ -201,7 +221,7 @@ class ScanFrame(ttk.Frame):
         
         toolbar = ttk.Frame(scanner_frame); toolbar.grid(row=0, column=0, sticky="ew"); toolbar.columnconfigure(6, weight=1)
         ttk.Label(toolbar, text="Cámara:").grid(row=0, column=0, padx=(0,4))
-        self.cmb_cam = ttk.Combobox(toolbar, width=10, state="readonly"); self.cmb_cam.grid(row=0, column=1)
+        self.cmb_cam = ttk.Combobox(toolbar, width=25, state="readonly"); self.cmb_cam.grid(row=0, column=1)
         ttk.Button(toolbar, text="Refrescar", command=self.refresh_cameras).grid(row=0, column=2, padx=6)
         ttk.Button(toolbar, text="Conectar", command=self.open_camera).grid(row=0, column=3, padx=6)
         ttk.Button(toolbar, text="Desconectar", command=self.close_camera).grid(row=0, column=4, padx=6)
@@ -253,8 +273,18 @@ class ScanFrame(ttk.Frame):
         self.gallery_frames = []  # Store frame widgets
         self.selected_gallery_idx = None
         self.drag_data = {"item": None, "y": 0}
+        self.camera_map = {}  # Map camera names to indices
         self.refresh_cameras(); self.bind_all_shortcuts()
         self.refresh_gallery()
+        # Show "CAMERA OFF" initially
+        self._show_camera_off_screen()
+        # Auto-connect to first camera if available
+        self.after(500, self._auto_connect_camera)
+    
+    def _auto_connect_camera(self):
+        """Automatically connect to the first available camera."""
+        if cv2 is not None and self.cap is None and len(self.camera_map) > 0:
+            self.open_camera()
     
     def on_show(self):
         """Called when frame is shown - refresh gallery to load images."""
@@ -262,19 +292,31 @@ class ScanFrame(ttk.Frame):
     
     def refresh_cameras(self):
         cams = detect_cameras()
+        self.camera_map = {}
         if not cams:
-            self.cmb_cam["values"] = ["(sin cámara)"]; self.cmb_cam.current(0)
+            self.cmb_cam["values"] = ["(sin cámara)"]
+            self.cmb_cam.current(0)
         else:
-            self.cmb_cam["values"] = cams; self.cmb_cam.current(0)
+            # cams is list of (index, name) tuples
+            names = [name for idx, name in cams]
+            self.camera_map = {name: idx for idx, name in cams}
+            self.cmb_cam["values"] = names
+            self.cmb_cam.current(0)
+    
     def open_camera(self):
         self.close_camera()
         if cv2 is None:
             self.show_toast("⚠ OpenCV no instalado. Vista previa deshabilitada."); return
         sel = self.cmb_cam.get()
-        try:
-            idx = int(sel)
-        except Exception:
-            messagebox.showerror("Cámara", "Seleccione un índice de cámara válido."); return
+        # Get camera index from name
+        if sel in self.camera_map:
+            idx = self.camera_map[sel]
+        else:
+            # Fallback: try to parse as integer
+            try:
+                idx = int(sel)
+            except Exception:
+                messagebox.showerror("Cámara", "Seleccione una cámara válida."); return
         self.cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) if sys.platform.startswith("win") else cv2.VideoCapture(idx)
         if not self.cap.isOpened():
             messagebox.showerror("Cámara", f"No se pudo abrir la cámara {idx}."); self.cap.release(); self.cap=None; return
@@ -285,6 +327,35 @@ class ScanFrame(ttk.Frame):
             try: self.cap.release()
             except Exception: pass
             self.cap = None
+        # Clear preview and show "CAMERA OFF" message
+        self._show_camera_off_screen()
+    
+    def _show_camera_off_screen(self):
+        """Display a black screen with 'CAMERA OFF' text."""
+        cw = self.canvas.winfo_width() or 960
+        ch = self.canvas.winfo_height() or 600
+        # Create a black image
+        black_img = Image.new("RGB", (cw, ch), color="#111111")
+        from PIL import ImageDraw, ImageFont
+        draw = ImageDraw.Draw(black_img)
+        # Draw text
+        try:
+            font = ImageFont.truetype("arial.ttf", 48)
+        except:
+            font = ImageFont.load_default()
+        text = "CAMERA OFF"
+        # Get text bbox for centering
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        x = (cw - text_w) // 2
+        y = (ch - text_h) // 2
+        draw.text((x, y), text, fill="#666666", font=font)
+        # Update canvas
+        self._tkimg = ImageTk.PhotoImage(black_img)
+        self.canvas.itemconfig(self._image_item, image=self._tkimg)
+        self.canvas.delete("overlay")
+    
     def _loop_preview(self):
         while self._preview_running and self.cap is not None:
             ret, frame = self.cap.read()
@@ -415,6 +486,30 @@ class ScanFrame(ttk.Frame):
             img.save(out_path, "JPEG", quality=92)
             self.show_toast(f"Guardada: {out_path.name}")
         self.refresh_gallery()
+        # Scroll to the last captured image
+        self.after(100, self._scroll_to_last_image)
+    
+    def _scroll_to_last_image(self):
+        """Scroll the gallery to show the last image."""
+        if len(self.gallery_images) > 0:
+            # Select the last image
+            last_idx = len(self.gallery_images) - 1
+            self.select_gallery_item(last_idx)
+            # Scroll to make it visible
+            if last_idx < len(self.gallery_frames):
+                frame = self.gallery_frames[last_idx]
+                self.gallery_canvas.update_idletasks()
+                # Get the position of the frame
+                bbox = self.gallery_canvas.bbox("all")
+                if bbox:
+                    frame_y = frame.winfo_y()
+                    canvas_h = self.gallery_canvas.winfo_height()
+                    # Scroll so the frame is visible at the bottom
+                    total_h = bbox[3] - bbox[1]
+                    if total_h > 0:
+                        scroll_fraction = (frame_y - canvas_h + frame.winfo_height() + 20) / total_h
+                        scroll_fraction = max(0.0, min(1.0, scroll_fraction))
+                        self.gallery_canvas.yview_moveto(scroll_fraction)
     
     def _get_next_page_number(self):
         """Get the next page number based on existing images."""
