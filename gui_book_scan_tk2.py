@@ -165,15 +165,21 @@ class ScanFrame(ttk.Frame):
         
         ttk.Label(gallery_frame, text="Galería", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, pady=(0,4), sticky="w")
         
-        # Listbox for thumbnails
-        self.gallery_listbox = tk.Listbox(gallery_frame, width=25, height=20)
-        self.gallery_listbox.grid(row=1, column=0, sticky="nsew")
-        self.gallery_listbox.bind("<Double-Button-1>", lambda e: self.preview_image())
-        self.gallery_listbox.bind("<Delete>", lambda e: self.delete_image())
+        # Canvas for thumbnails with scrollbar
+        self.gallery_canvas = tk.Canvas(gallery_frame, width=200, bg="#2b2b2b", highlightthickness=0)
+        self.gallery_canvas.grid(row=1, column=0, sticky="nsew")
         
-        gallery_scroll = ttk.Scrollbar(gallery_frame, orient="vertical", command=self.gallery_listbox.yview)
+        gallery_scroll = ttk.Scrollbar(gallery_frame, orient="vertical", command=self.gallery_canvas.yview)
         gallery_scroll.grid(row=1, column=1, sticky="ns")
-        self.gallery_listbox.config(yscrollcommand=gallery_scroll.set)
+        self.gallery_canvas.config(yscrollcommand=gallery_scroll.set)
+        
+        # Frame inside canvas to hold thumbnails
+        self.gallery_inner = tk.Frame(self.gallery_canvas, bg="#2b2b2b")
+        self.gallery_canvas_window = self.gallery_canvas.create_window((0, 0), window=self.gallery_inner, anchor="nw")
+        
+        self.gallery_inner.bind("<Configure>", lambda e: self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all")))
+        self.gallery_canvas.bind("<Double-Button-1>", lambda e: self.preview_image())
+        self.gallery_canvas.bind("<Delete>", lambda e: self.delete_image())
         
         # Reorder buttons
         btn_frame = ttk.Frame(gallery_frame)
@@ -238,6 +244,9 @@ class ScanFrame(ttk.Frame):
         self._last_detected = None
         self._frame_counter = 0
         self.gallery_images = []  # Store image paths for gallery
+        self.gallery_thumbnails = []  # Store PhotoImage references
+        self.gallery_frames = []  # Store frame widgets
+        self.selected_gallery_idx = None
         self.refresh_cameras(); self.bind_all_shortcuts()
         self.refresh_gallery()
     def refresh_cameras(self):
@@ -392,44 +401,96 @@ class ScanFrame(ttk.Frame):
         self.refresh_gallery()
     
     def refresh_gallery(self):
-        """Load and display all images from project pages directory."""
-        self.gallery_listbox.delete(0, tk.END)
+        """Load and display all images from project pages directory with thumbnails."""
+        # Clear existing thumbnails
+        for frame in self.gallery_frames:
+            frame.destroy()
+        self.gallery_frames = []
+        self.gallery_thumbnails = []
         self.gallery_images = []
+        self.selected_gallery_idx = None
+        
         proj = self.app.project
         if proj is None or not proj.pages_dir.exists():
             return
+        
         # Find all image files
         for ext in ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"]:
             self.gallery_images.extend(proj.pages_dir.glob(ext))
+        
         # Sort by name
         self.gallery_images.sort(key=lambda p: p.name)
-        # Display in listbox
-        for img_path in self.gallery_images:
-            self.gallery_listbox.insert(tk.END, img_path.name)
+        
+        # Create thumbnail for each image
+        for idx, img_path in enumerate(self.gallery_images):
+            try:
+                # Load and create thumbnail
+                img = Image.open(img_path)
+                img.thumbnail((180, 120), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                self.gallery_thumbnails.append(photo)
+                
+                # Create frame for this thumbnail
+                item_frame = tk.Frame(self.gallery_inner, bg="#3a3a3a", relief="raised", bd=2)
+                item_frame.pack(fill="x", padx=5, pady=5)
+                self.gallery_frames.append(item_frame)
+                
+                # Thumbnail image
+                img_label = tk.Label(item_frame, image=photo, bg="#3a3a3a")
+                img_label.pack(pady=5)
+                
+                # Filename label
+                name_label = tk.Label(item_frame, text=img_path.name, bg="#3a3a3a", fg="white", 
+                                     font=("Segoe UI", 8), wraplength=180)
+                name_label.pack(pady=(0,5))
+                
+                # Bind click events
+                for widget in [item_frame, img_label, name_label]:
+                    widget.bind("<Button-1>", lambda e, i=idx: self.select_gallery_item(i))
+                    widget.bind("<Double-Button-1>", lambda e, i=idx: self.preview_image())
+                
+            except Exception as e:
+                print(f"Error loading thumbnail for {img_path.name}: {e}")
+        
+        self.gallery_canvas.update_idletasks()
+        self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all"))
+    
+    def select_gallery_item(self, idx):
+        """Highlight selected gallery item."""
+        # Unhighlight previous selection
+        if self.selected_gallery_idx is not None and self.selected_gallery_idx < len(self.gallery_frames):
+            self.gallery_frames[self.selected_gallery_idx].config(bg="#3a3a3a", relief="raised")
+            for child in self.gallery_frames[self.selected_gallery_idx].winfo_children():
+                child.config(bg="#3a3a3a")
+        
+        # Highlight new selection
+        self.selected_gallery_idx = idx
+        if idx < len(self.gallery_frames):
+            self.gallery_frames[idx].config(bg="#4a4a4a", relief="sunken")
+            for child in self.gallery_frames[idx].winfo_children():
+                child.config(bg="#4a4a4a")
     
     def move_up(self):
         """Move selected image up in the list and rename files to maintain order."""
-        sel = self.gallery_listbox.curselection()
-        if not sel or sel[0] == 0:
+        if self.selected_gallery_idx is None or self.selected_gallery_idx == 0:
             return
-        idx = sel[0]
+        idx = self.selected_gallery_idx
         # Swap in list
         self.gallery_images[idx], self.gallery_images[idx-1] = self.gallery_images[idx-1], self.gallery_images[idx]
         self._rename_sequence()
         self.refresh_gallery()
-        self.gallery_listbox.selection_set(idx-1)
+        self.select_gallery_item(idx-1)
     
     def move_down(self):
         """Move selected image down in the list and rename files to maintain order."""
-        sel = self.gallery_listbox.curselection()
-        if not sel or sel[0] >= len(self.gallery_images) - 1:
+        if self.selected_gallery_idx is None or self.selected_gallery_idx >= len(self.gallery_images) - 1:
             return
-        idx = sel[0]
+        idx = self.selected_gallery_idx
         # Swap in list
         self.gallery_images[idx], self.gallery_images[idx+1] = self.gallery_images[idx+1], self.gallery_images[idx]
         self._rename_sequence()
         self.refresh_gallery()
-        self.gallery_listbox.selection_set(idx+1)
+        self.select_gallery_item(idx+1)
     
     def _rename_sequence(self):
         """Rename all files in gallery_images to maintain sequential order."""
@@ -461,10 +522,9 @@ class ScanFrame(ttk.Frame):
     
     def delete_image(self):
         """Delete selected image from disk and refresh gallery."""
-        sel = self.gallery_listbox.curselection()
-        if not sel:
+        if self.selected_gallery_idx is None:
             return
-        idx = sel[0]
+        idx = self.selected_gallery_idx
         img_path = self.gallery_images[idx]
         if messagebox.askyesno("Borrar", f"¿Borrar {img_path.name}?"):
             try:
@@ -476,10 +536,9 @@ class ScanFrame(ttk.Frame):
     
     def preview_image(self):
         """Open a window showing the selected image at full size."""
-        sel = self.gallery_listbox.curselection()
-        if not sel:
+        if self.selected_gallery_idx is None:
             return
-        idx = sel[0]
+        idx = self.selected_gallery_idx
         img_path = self.gallery_images[idx]
         try:
             preview_win = tk.Toplevel(self)
