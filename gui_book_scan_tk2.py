@@ -1699,14 +1699,16 @@ class ScannerWindow(tk.Toplevel):
             (mx1, my1), (mx2, my2) = midline
             x_split = max(1, min(w-1, int((mx1 + mx2)//2)))
             side_choice = self.var_face.get()
-            margin = max(4, int(w * 0.005))
+            # Very small margin only for left side to avoid gutter; no margin on right
+            margin_left = max(2, int(w * 0.002))
+            margin_right = 0  # No margin on right to preserve full page
             
             # Handle "ambas" mode - capture both sides
             if side_choice == "ambas":
                 # Process left side (reverso)
                 left_roi = frame_rgb[:, 0:min(x_split + 1, w)]
-                if left_roi.shape[1] > margin:
-                    left_roi = left_roi[:, :-margin]
+                if left_roi.shape[1] > margin_left:
+                    left_roi = left_roi[:, :-margin_left]
                 
                 pts_left = None
                 try:
@@ -1766,8 +1768,7 @@ class ScannerWindow(tk.Toplevel):
                 
                 # Process right side (anverso)
                 right_roi = frame_rgb[:, max(x_split - 1, 0):w]
-                if right_roi.shape[1] > margin:
-                    right_roi = right_roi[:, margin:]
+                # No margin trimming on right side to preserve full page edge
                 
                 pts_right = None
                 try:
@@ -1832,12 +1833,11 @@ class ScannerWindow(tk.Toplevel):
             take_right = (side_choice == "anverso")
             if take_right:
                 roi_rgb = frame_rgb[:, max(x_split - 1, 0):w]
-                if roi_rgb.shape[1] > margin:
-                    roi_rgb = roi_rgb[:, margin:]
+                # No margin on right side
             else:
                 roi_rgb = frame_rgb[:, 0:min(x_split + 1, w)]
-                if roi_rgb.shape[1] > margin:
-                    roi_rgb = roi_rgb[:, :-margin]
+                if roi_rgb.shape[1] > margin_left:
+                    roi_rgb = roi_rgb[:, :-margin_left]
 
         # Detect page contour inside the chosen ROI and warp
         pts = None
