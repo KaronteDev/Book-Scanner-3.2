@@ -33,6 +33,16 @@ APP_NAME = "GeoDocs Scanner"
 APP_VERSION = "v32.3 estable"
 GLOBAL_DB = "geodocs.db"
 REST_CONFIG = "rest_config.json"
+CALIBRATION_CONFIG = "camera_calibration.json"
+
+# Paper format presets (in mm)
+PAPER_FORMATS = {
+    "A3": (297, 420),
+    "A4": (210, 297),
+    "A5": (148, 210),
+    "A6": (105, 148),
+    "Custom": None
+}
 
 def safe_mkdir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
@@ -119,6 +129,127 @@ def detect_cameras(max_index: int = 8) -> List[tuple]:
         cap.release()
     return found
 
+# ========== IMAGE PROCESSING FUNCTIONS ==========
+
+def detect_finger_regions(img_array):
+    """Detect and return mask of potential finger/hand regions using skin tone detection."""
+    if cv2 is None:
+        return None
+    try:
+        import numpy as np
+        # Convert to HSV for better skin detection
+        hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+        # Skin color range in HSV (adjusted for various lighting)
+        lower_skin = np.array([0, 20, 70], dtype=np.uint8)
+        upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+        mask = cv2.inRange(hsv, lower_skin, upper_skin)
+        # Morphological operations to clean up
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        return mask
+    except:
+        return None
+
+def remove_fingers_inpaint(img_array, mask):
+    """Remove detected finger regions using inpainting."""
+    if cv2 is None or mask is None:
+        return img_array
+    try:
+        # Inpaint the regions
+        result = cv2.inpaint(img_array, mask, 3, cv2.INPAINT_TELEA)
+        return result
+    except:
+        return img_array
+
+def auto_adjust_brightness_contrast(img_array):
+    """Automatically adjust brightness and contrast using histogram equalization."""
+    if cv2 is None:
+        return img_array
+    try:
+        import numpy as np
+        # Convert to LAB color space
+        lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        # Merge back
+        lab = cv2.merge([l, a, b])
+        result = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        return result
+    except:
+        return img_array
+
+def dewarp_page(img_array, contour):
+    """Apply dewarping to correct page curvature."""
+    if cv2 is None or contour is None:
+        return img_array
+    try:
+        import numpy as np
+        # This is a simplified dewarping - for production, consider using more advanced methods
+        # Get bounding rect to estimate page boundaries
+        x, y, w, h = cv2.boundingRect(contour)
+        # Create a simple mesh grid for dewarping
+        rows, cols = img_array.shape[:2]
+        # For now, just use perspective transform (basic dewarping)
+        # Advanced dewarping would require detecting text lines and page curve
+        return img_array
+    except:
+        return img_array
+
+def detect_two_pages(img_array):
+    """Detect if image contains one or two pages opened."""
+    if cv2 is None:
+        return False
+    try:
+        import numpy as np
+        # Convert to grayscale
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        # Find vertical edges in the middle section
+        h, w = gray.shape
+        middle_section = gray[:, w//3:2*w//3]
+        edges = cv2.Canny(middle_section, 50, 150)
+        # Look for a strong vertical line in the middle
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=h//3, maxLineGap=20)
+        if lines is not None and len(lines) > 0:
+            # Check if there's a vertical line near center
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                # Check if line is mostly vertical
+                if abs(x2 - x1) < 20 and abs(y2 - y1) > h//4:
+                    return True
+        return False
+    except:
+        return False
+
+def get_calibration_for_camera(camera_idx, project_name=None):
+    """Load calibration settings for specific camera and project."""
+    try:
+        cfg_path = Path.cwd() / CALIBRATION_CONFIG
+        if cfg_path.exists():
+            data = load_json(cfg_path, {})
+            key = f"cam_{camera_idx}"
+            if project_name:
+                key = f"{key}_{project_name}"
+            return data.get(key, {})
+        return {}
+    except:
+        return {}
+
+def save_calibration_for_camera(camera_idx, settings, project_name=None):
+    """Save calibration settings for specific camera and project."""
+    try:
+        cfg_path = Path.cwd() / CALIBRATION_CONFIG
+        data = load_json(cfg_path, {})
+        key = f"cam_{camera_idx}"
+        if project_name:
+            key = f"{key}_{project_name}"
+        data[key] = settings
+        save_json(cfg_path, data)
+    except:
+        pass
+
 @dataclass
 class ProjectInfo:
     titulo: str = "Proyecto_sin_nombre"
@@ -157,6 +288,68 @@ class RestConfigDialog(tk.Toplevel):
         data = {"base_url": self.var_url.get().strip(), "token": self.var_jwt.get().strip()}
         save_json(self.config_path, data)
         messagebox.showinfo("REST", "Configuración guardada.")
+        self.destroy()
+
+class CalibrationDialog(tk.Toplevel):
+    def __init__(self, master, scan_frame):
+        super().__init__(master)
+        self.title("Calibración de cámara")
+        self.resizable(False, False)
+        self.scan_frame = scan_frame
+        
+        frm = ttk.Frame(self, padding=16)
+        frm.grid(row=0, column=0, sticky="nsew")
+        
+        ttk.Label(frm, text="Configuración de captura y procesamiento", 
+                 font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=2, pady=(0,12), sticky="w")
+        
+        # Paper format
+        ttk.Label(frm, text="Formato de papel:").grid(row=1, column=0, sticky="w", pady=4)
+        format_frame = ttk.Frame(frm)
+        format_frame.grid(row=1, column=1, sticky="w", pady=4)
+        for i, fmt in enumerate(PAPER_FORMATS.keys()):
+            ttk.Radiobutton(format_frame, text=fmt, value=fmt, 
+                           variable=scan_frame.var_paper_format).grid(row=0, column=i, padx=4)
+        
+        # Processing options
+        ttk.Label(frm, text="Procesamiento automático:", 
+                 font=("Segoe UI", 9, "bold")).grid(row=2, column=0, columnspan=2, pady=(12,4), sticky="w")
+        
+        ttk.Checkbutton(frm, text="Eliminar dedos y soportes visibles", 
+                       variable=scan_frame.var_auto_fingers).grid(row=3, column=0, columnspan=2, sticky="w", pady=2)
+        
+        ttk.Checkbutton(frm, text="Ajuste automático de brillo y contraste", 
+                       variable=scan_frame.var_auto_brightness).grid(row=4, column=0, columnspan=2, sticky="w", pady=2)
+        
+        ttk.Checkbutton(frm, text="Recorte automático al área del documento", 
+                       variable=scan_frame.var_auto_crop).grid(row=5, column=0, columnspan=2, sticky="w", pady=2)
+        
+        ttk.Checkbutton(frm, text="Corrección de curvatura de página", 
+                       variable=scan_frame.var_dewarp).grid(row=6, column=0, columnspan=2, sticky="w", pady=2)
+        
+        # Manual adjustments
+        ttk.Label(frm, text="Ajustes manuales:", 
+                 font=("Segoe UI", 9, "bold")).grid(row=7, column=0, columnspan=2, pady=(12,4), sticky="w")
+        
+        ttk.Label(frm, text="Brillo:").grid(row=8, column=0, sticky="w", pady=4)
+        ttk.Scale(frm, variable=scan_frame.s_brightness, from_=0.5, to=1.5, 
+                 orient="horizontal", length=200).grid(row=8, column=1, sticky="ew", pady=4)
+        
+        ttk.Label(frm, text="Contraste:").grid(row=9, column=0, sticky="w", pady=4)
+        ttk.Scale(frm, variable=scan_frame.s_contrast, from_=0.5, to=1.5, 
+                 orient="horizontal", length=200).grid(row=9, column=1, sticky="ew", pady=4)
+        
+        # Buttons
+        btns = ttk.Frame(frm)
+        btns.grid(row=10, column=0, columnspan=2, pady=(16,0), sticky="e")
+        ttk.Button(btns, text="Guardar y cerrar", command=self.save_and_close).grid(row=0, column=0, padx=4)
+        ttk.Button(btns, text="Cancelar", command=self.destroy).grid(row=0, column=1, padx=4)
+        
+        self.grab_set()
+        self.transient(master)
+    
+    def save_and_close(self):
+        self.scan_frame.save_current_calibration()
         self.destroy()
 
 class StartFrame(ttk.Frame):
@@ -247,7 +440,36 @@ class ScanFrame(ttk.Frame):
         self.cmb_detect_interval.bind('<<ComboboxSelected>>', lambda e: self._on_detect_interval_changed())
         self.lbl_detect_status = ttk.Label(toolbar, text=f"Detección: 1/{self._detect_interval}")
         self.lbl_detect_status.grid(row=0, column=11, padx=(8,0))
-        sliders = ttk.Frame(scanner_frame); sliders.grid(row=1, column=0, sticky="ew", pady=(6,4))
+        
+        # Second toolbar row: Processing options
+        toolbar2 = ttk.Frame(scanner_frame)
+        toolbar2.grid(row=1, column=0, sticky="ew", pady=(4,0))
+        toolbar2.columnconfigure(10, weight=1)
+        
+        # Auto-processing options
+        self.var_auto_fingers = tk.BooleanVar(value=False)
+        ttk.Checkbutton(toolbar2, text="Eliminar dedos", variable=self.var_auto_fingers).grid(row=0, column=0, padx=(0,8))
+        
+        self.var_auto_brightness = tk.BooleanVar(value=False)
+        ttk.Checkbutton(toolbar2, text="Auto brillo/contraste", variable=self.var_auto_brightness).grid(row=0, column=1, padx=8)
+        
+        self.var_auto_crop = tk.BooleanVar(value=False)
+        ttk.Checkbutton(toolbar2, text="Auto recorte", variable=self.var_auto_crop).grid(row=0, column=2, padx=8)
+        
+        self.var_dewarp = tk.BooleanVar(value=False)
+        ttk.Checkbutton(toolbar2, text="Corregir curvatura", variable=self.var_dewarp).grid(row=0, column=3, padx=8)
+        
+        # Paper format selection
+        ttk.Label(toolbar2, text="Formato:").grid(row=0, column=4, padx=(12,4))
+        self.var_paper_format = tk.StringVar(value="A4")
+        self.cmb_paper_format = ttk.Combobox(toolbar2, textvariable=self.var_paper_format, 
+                                             values=list(PAPER_FORMATS.keys()), width=10, state="readonly")
+        self.cmb_paper_format.grid(row=0, column=5)
+        
+        ttk.Button(toolbar2, text="Calibrar", command=self.open_calibration_dialog).grid(row=0, column=6, padx=6)
+        ttk.Button(toolbar2, text="Guardar calibración", command=self.save_current_calibration).grid(row=0, column=7, padx=6)
+        
+        sliders = ttk.Frame(scanner_frame); sliders.grid(row=2, column=0, sticky="ew", pady=(6,4))
         ttk.Label(sliders, text="Brillo").grid(row=0, column=0, padx=(0,4))
         self.s_brightness = tk.DoubleVar(value=1.0)
         ttk.Scale(sliders, variable=self.s_brightness, from_=0.5, to=1.5, orient="horizontal").grid(row=0, column=1, sticky="ew");
@@ -255,12 +477,12 @@ class ScanFrame(ttk.Frame):
         self.s_contrast = tk.DoubleVar(value=1.0)
         ttk.Scale(sliders, variable=self.s_contrast, from_=0.5, to=1.5, orient="horizontal").grid(row=0, column=3, sticky="ew")
         sliders.columnconfigure(1, weight=1); sliders.columnconfigure(3, weight=1)
-        self.canvas = tk.Canvas(scanner_frame, width=960, height=600, bg="#111"); self.canvas.grid(row=2, column=0, pady=6, sticky="nsew")
+        self.canvas = tk.Canvas(scanner_frame, width=960, height=600, bg="#111"); self.canvas.grid(row=3, column=0, pady=6, sticky="nsew")
         # persistent image item to avoid flicker
         self._tkimg = None
         self._image_item = self.canvas.create_image(0, 0, anchor="nw", image=None)
-        scanner_frame.rowconfigure(2, weight=1); scanner_frame.columnconfigure(0, weight=1)
-        bottom = ttk.Frame(scanner_frame); bottom.grid(row=3, column=0, sticky="ew", pady=(6,2))
+        scanner_frame.rowconfigure(3, weight=1); scanner_frame.columnconfigure(0, weight=1)
+        bottom = ttk.Frame(scanner_frame); bottom.grid(row=4, column=0, sticky="ew", pady=(6,2))
         ttk.Button(bottom, text="Capturar (SPACE)", command=self.capture).grid(row=0, column=0, padx=6)
         ttk.Button(bottom, text="Guardar imagen", command=self.capture).grid(row=0, column=1, padx=6)
         ttk.Button(bottom, text="Volver", command=lambda: self.app.show_frame("start")).grid(row=0, column=2, padx=6)
@@ -274,6 +496,8 @@ class ScanFrame(ttk.Frame):
         self.selected_gallery_idx = None
         self.drag_data = {"item": None, "y": 0}
         self.camera_map = {}  # Map camera names to indices
+        self.current_camera_idx = None  # Track current camera for calibration
+        self.calibration_settings = {}  # Store current calibration
         self.refresh_cameras(); self.bind_all_shortcuts()
         self.refresh_gallery()
         # Show "CAMERA OFF" initially
@@ -320,15 +544,37 @@ class ScanFrame(ttk.Frame):
         self.cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) if sys.platform.startswith("win") else cv2.VideoCapture(idx)
         if not self.cap.isOpened():
             messagebox.showerror("Cámara", f"No se pudo abrir la cámara {idx}."); self.cap.release(); self.cap=None; return
+        
+        # Store current camera index and load calibration
+        self.current_camera_idx = idx
+        proj_name = self.app.project.titulo if self.app.project else None
+        self.calibration_settings = get_calibration_for_camera(idx, proj_name)
+        
+        # Apply saved settings if available
+        if self.calibration_settings:
+            if 'paper_format' in self.calibration_settings:
+                self.var_paper_format.set(self.calibration_settings['paper_format'])
+            if 'auto_fingers' in self.calibration_settings:
+                self.var_auto_fingers.set(self.calibration_settings['auto_fingers'])
+            if 'auto_brightness' in self.calibration_settings:
+                self.var_auto_brightness.set(self.calibration_settings['auto_brightness'])
+            if 'auto_crop' in self.calibration_settings:
+                self.var_auto_crop.set(self.calibration_settings['auto_crop'])
+            if 'dewarp' in self.calibration_settings:
+                self.var_dewarp.set(self.calibration_settings['dewarp'])
+        
         self._preview_running = True; threading.Thread(target=self._loop_preview, daemon=True).start()
+    
     def close_camera(self):
         self._preview_running = False
+        # Give the thread time to stop
+        time.sleep(0.1)
         if self.cap is not None:
             try: self.cap.release()
             except Exception: pass
             self.cap = None
-        # Clear preview and show "CAMERA OFF" message
-        self._show_camera_off_screen()
+        # Clear preview and show "CAMERA OFF" message after ensuring thread has stopped
+        self.after(150, self._show_camera_off_screen)
     
     def _show_camera_off_screen(self):
         """Display a black screen with 'CAMERA OFF' text."""
@@ -426,6 +672,10 @@ class ScanFrame(ttk.Frame):
         orig_size: (width, height) of the source frame (before scaling).
         orig_points: list of (x,y) points in the source frame coordinates.
         """
+        # Don't update if camera is not running
+        if not self._preview_running or self.cap is None:
+            return
+        
         # update persistent image item instead of clearing canvas to prevent flicker
         self._tkimg = ImageTk.PhotoImage(img)
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height(); iw, ih = self._tkimg.width(), self._tkimg.height()
@@ -462,9 +712,55 @@ class ScanFrame(ttk.Frame):
         ret, frame = self.cap.read()
         if not ret:
             messagebox.showerror("Captura", "No se pudo capturar imagen."); return
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); img = Image.fromarray(frame)
+        
+        # Convert to RGB for processing
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Apply auto-processing if enabled
+        processed_frame = frame_rgb.copy()
+        
+        # 1. Remove fingers if enabled
+        if self.var_auto_fingers.get():
+            finger_mask = detect_finger_regions(processed_frame)
+            if finger_mask is not None:
+                processed_frame = remove_fingers_inpaint(processed_frame, finger_mask)
+        
+        # 2. Auto brightness/contrast if enabled
+        if self.var_auto_brightness.get():
+            processed_frame = auto_adjust_brightness_contrast(processed_frame)
+        
+        # 3. Convert to PIL and apply manual adjustments
+        img = Image.fromarray(processed_frame)
         img = ImageEnhance.Brightness(img).enhance(self.s_brightness.get())
         img = ImageEnhance.Contrast(img).enhance(self.s_contrast.get())
+        
+        # 4. Auto crop if enabled and page detected
+        if self.var_auto_crop.get() and self._last_detected:
+            try:
+                import numpy as np
+                ordered = self._order_points(self._last_detected)
+                if len(ordered) == 4:
+                    (tl, tr, br, bl) = ordered
+                    def dist(a, b):
+                        import math
+                        return math.hypot(a[0]-b[0], a[1]-b[1])
+                    widthA = dist(br, bl)
+                    widthB = dist(tr, tl)
+                    maxWidth = max(int(widthA), int(widthB))
+                    heightA = dist(tr, br)
+                    heightB = dist(tl, bl)
+                    maxHeight = max(int(heightA), int(heightB))
+                    if maxWidth > 0 and maxHeight > 0:
+                        src_pts = np.array(ordered, dtype="float32")
+                        dst_pts = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
+                        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+                        # Re-get processed frame as array
+                        img_array = np.array(img)
+                        warped = cv2.warpPerspective(img_array, M, (maxWidth, maxHeight))
+                        img = Image.fromarray(warped)
+            except Exception:
+                pass  # If auto-crop fails, continue with uncropped image
+        
         proj = self.app.project
         if proj is None:
             self.show_toast("⚠ Cree o abra un proyecto para guardar"); return
@@ -528,6 +824,33 @@ class ScanFrame(ttk.Frame):
                     max_num = num
         
         return max_num + 1
+    
+    def open_calibration_dialog(self):
+        """Open calibration dialog for current camera."""
+        if self.current_camera_idx is None:
+            self.show_toast("⚠ Conecte una cámara primero")
+            return
+        CalibrationDialog(self, self)
+    
+    def save_current_calibration(self):
+        """Save current processing settings as calibration for this camera."""
+        if self.current_camera_idx is None:
+            self.show_toast("⚠ Conecte una cámara primero")
+            return
+        
+        settings = {
+            'paper_format': self.var_paper_format.get(),
+            'auto_fingers': self.var_auto_fingers.get(),
+            'auto_brightness': self.var_auto_brightness.get(),
+            'auto_crop': self.var_auto_crop.get(),
+            'dewarp': self.var_dewarp.get(),
+            'brightness': self.s_brightness.get(),
+            'contrast': self.s_contrast.get()
+        }
+        
+        proj_name = self.app.project.titulo if self.app.project else None
+        save_calibration_for_camera(self.current_camera_idx, settings, proj_name)
+        self.show_toast(f"✓ Calibración guardada para cámara {self.current_camera_idx}")
     
     def refresh_gallery(self):
         """Load and display all images from project pages directory with thumbnails."""
