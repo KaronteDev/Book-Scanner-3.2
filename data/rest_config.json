@@ -1,0 +1,21 @@
+{
+  "api_base_url": "https://api.geodocs.local",
+  "verify_tls": true,
+  "timeout_sec": 20,
+  "auth": "jwt",
+  "jwt_token": "REEMPLAZAR_CON_TU_JWT_TOKEN",
+  "iiif_image_base_url": "https://iiif.geodocs.local/iiif/",
+  "endpoints": {
+    "health": "/health",
+    "places": "/places",
+    "persons": "/persons",
+    "documents": "/documents",
+    "annotations": "/annotations",
+    "geocode": "/geo/geocode",
+    "reverse_geocode": "/geo/reverse"
+  },
+  "cache": {
+    "enabled": true,
+    "ttl_seconds": 3600
+  }
+}

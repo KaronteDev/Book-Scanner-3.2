@@ -1,15 +1,39 @@
-# pinned numpy for faster installs (added by assistant)
-# If this causes a dependency conflict with opencv-python (which requires numpy<2.3.0), see README notes.
-numpy==2.3.4
-opencv-python
-pillow
-beautifulsoup4
-lxml
-reportlab
-pyttsx3
-pyspellchecker
-language-tool-python
-simpleaudio
+# GeoDocs Scanner v32.3 PLUS - Dependencies
+# Core image processing
+numpy>=1.21.0,<2.0.0
+opencv-python>=4.5.0
+pillow>=9.0.0
+
+# OCR
+pytesseract>=0.3.10
+
+# PDF generation
+reportlab>=3.6.0
+
+# Text-to-Speech
+pyttsx3>=2.90
+gTTS>=2.3.0
+
+# Audio playback
+simpleaudio>=1.0.4
 playsound==1.2.2
-flask
-gTTS
+
+# Spell checking
+pyspellchecker>=0.7.0
+language-tool-python>=2.7.0
+
+# XML/HTML parsing
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+
+# REST API client
+requests>=2.28.0
+
+# Web server (for viewer)
+flask>=2.2.0
+
+# Optional: better UI styling
+ttkbootstrap>=1.10.0
+
+# Optional: system info
+psutil>=5.9.0
