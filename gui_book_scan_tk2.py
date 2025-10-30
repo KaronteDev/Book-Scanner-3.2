@@ -98,34 +98,64 @@ def init_global_db(base: Path) -> None:
     conn.close()
 
 def detect_cameras(max_index: int = 8) -> List[tuple]:
-    """Detect available cameras and return list of (index, name) tuples."""
+    """Detect available cameras and return list of (index, name, max_width, max_height) tuples."""
     if cv2 is None:
         return []
     found = []
+    
+    # Try to get camera names from Windows registry/COM on Windows
+    camera_names = {}
+    if sys.platform.startswith("win"):
+        try:
+            import subprocess
+            # Use PowerShell to get camera names
+            result = subprocess.run(
+                ['powershell', '-Command', 
+                 "Get-PnpDevice -Class Camera | Where-Object {$_.Status -eq 'OK'} | Select-Object -ExpandProperty FriendlyName"],
+                capture_output=True, text=True, timeout=3
+            )
+            if result.returncode == 0:
+                names = [n.strip() for n in result.stdout.strip().split('\n') if n.strip()]
+                for idx, name in enumerate(names[:max_index]):
+                    camera_names[idx] = name
+        except Exception:
+            pass
+    
     for i in range(max_index):
         cap = cv2.VideoCapture(i, cv2.CAP_DSHOW) if sys.platform.startswith("win") else cv2.VideoCapture(i)
         ok = cap.isOpened()
         if ok:
-            # Try to get camera name
-            name = f"Cámara {i}"
             try:
-                # On Windows with DSHOW, try to get more info
-                if sys.platform.startswith("win"):
-                    # Try to read a frame to ensure camera is working
-                    ret, _ = cap.read()
-                    if ret:
-                        # Get frame dimensions as additional info
-                        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        name = f"Cámara {i} ({w}x{h})"
+                # Try to get maximum supported resolution
+                # Test common high resolutions
+                max_w, max_h = 640, 480  # default
+                test_resolutions = [
+                    (3840, 2160),  # 4K
+                    (2560, 1440),  # 2K
+                    (1920, 1080),  # Full HD
+                    (1280, 720),   # HD
+                    (640, 480)     # VGA
+                ]
+                
+                for test_w, test_h in test_resolutions:
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, test_w)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, test_h)
+                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    if actual_w >= test_w * 0.9 and actual_h >= test_h * 0.9:  # Allow 10% tolerance
+                        max_w, max_h = actual_w, actual_h
+                        break
+                
+                # Get camera name from registry or use generic name
+                if i in camera_names:
+                    name = f"{camera_names[i]} ({max_w}x{max_h})"
                 else:
-                    # Try to get backend name on other platforms
-                    backend = cap.getBackendName() if hasattr(cap, 'getBackendName') else ""
-                    if backend:
-                        name = f"Cámara {i} ({backend})"
-            except:
-                pass
-            found.append((i, name))
+                    name = f"Cámara {i} ({max_w}x{max_h})"
+                
+                found.append((i, name, max_w, max_h))
+            except Exception:
+                name = camera_names.get(i, f"Cámara {i}")
+                found.append((i, name, 640, 480))
         cap.release()
     return found
 
@@ -850,6 +880,7 @@ class ScannerWindow(tk.Toplevel):
         self.selected_gallery_idx = None
         self.drag_data = {"item": None, "y": 0}
         self.camera_map = {}  # Map camera names to indices
+        self.camera_resolutions = {}  # Map camera names to (width, height)
         self.current_camera_idx = None  # Track current camera for calibration
         self.calibration_settings = {}  # Store current calibration
         self.refresh_cameras(); self.bind_all_shortcuts()
@@ -875,13 +906,15 @@ class ScannerWindow(tk.Toplevel):
     def refresh_cameras(self):
         cams = detect_cameras()
         self.camera_map = {}
+        self.camera_resolutions = {}
         if not cams:
             self.cmb_cam["values"] = ["(sin cámara)"]
             self.cmb_cam.current(0)
         else:
-            # cams is list of (index, name) tuples
-            names = [name for idx, name in cams]
-            self.camera_map = {name: idx for idx, name in cams}
+            # cams is list of (index, name, max_width, max_height) tuples
+            names = [name for idx, name, w, h in cams]
+            self.camera_map = {name: idx for idx, name, w, h in cams}
+            self.camera_resolutions = {name: (w, h) for idx, name, w, h in cams}
             self.cmb_cam["values"] = names
             self.cmb_cam.current(0)
     
@@ -893,15 +926,22 @@ class ScannerWindow(tk.Toplevel):
         # Get camera index from name
         if sel in self.camera_map:
             idx = self.camera_map[sel]
+            # Get the maximum resolution for this camera
+            max_w, max_h = self.camera_resolutions.get(sel, (1920, 1080))
         else:
             # Fallback: try to parse as integer
             try:
                 idx = int(sel)
+                max_w, max_h = 1920, 1080
             except Exception:
                 messagebox.showerror("Cámara", "Seleccione una cámara válida.", parent=self); return
         self.cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) if sys.platform.startswith("win") else cv2.VideoCapture(idx)
         if not self.cap.isOpened():
             messagebox.showerror("Cámara", f"No se pudo abrir la cámara {idx}.", parent=self); self.cap.release(); self.cap=None; return
+        
+        # Set camera to its maximum supported resolution
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, max_w)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, max_h)
         
         # Store current camera index and load calibration
         self.current_camera_idx = idx
@@ -1085,13 +1125,6 @@ class ScannerWindow(tk.Toplevel):
                     # nearly horizontal; fall back to mid x
                     xtop = x + iw//2; xbot = x + iw//2
                 xtop = int(clamp(xtop, x, x+iw)); xbot = int(clamp(xbot, x, x+iw))
-                # Left shaded polygon
-                left_poly = [x, top_y, xtop, top_y, xbot, bot_y, x, bot_y]
-                # Right shaded polygon
-                right_poly = [xtop, top_y, x+iw, top_y, x+iw, bot_y, xbot, bot_y]
-                # Draw with stipple to simulate transparency
-                self.canvas.create_polygon(*left_poly, fill="#000000", outline="", stipple="gray25", tag="overlay")
-                self.canvas.create_polygon(*right_poly, fill="#000000", outline="", stipple="gray25", tag="overlay")
             except Exception:
                 pass
         # Draw detected page polygon if any
