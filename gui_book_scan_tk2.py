@@ -269,7 +269,7 @@ class ScanFrame(ttk.Frame):
     def open_camera(self):
         self.close_camera()
         if cv2 is None:
-            messagebox.showwarning("Cámara", "OpenCV no instalado. Vista previa deshabilitada."); return
+            self.show_toast("⚠ OpenCV no instalado. Vista previa deshabilitada."); return
         sel = self.cmb_cam.get()
         try:
             idx = int(sel)
@@ -387,7 +387,7 @@ class ScanFrame(ttk.Frame):
                 pass
     def capture(self):
         if self.cap is None or cv2 is None:
-            messagebox.showwarning("Captura", "Cámara no disponible."); return
+            self.show_toast("⚠ Cámara no disponible"); return
         ret, frame = self.cap.read()
         if not ret:
             messagebox.showerror("Captura", "No se pudo capturar imagen."); return
@@ -396,20 +396,43 @@ class ScanFrame(ttk.Frame):
         img = ImageEnhance.Contrast(img).enhance(self.s_contrast.get())
         proj = self.app.project
         if proj is None:
-            messagebox.showinfo("Proyecto", "Cree o abra un proyecto para guardar."); return
-        ts = time.strftime("%Y%m%d_%H%M%S")
+            self.show_toast("⚠ Cree o abra un proyecto para guardar"); return
+        
+        # Get next page number based on last image in gallery
+        next_num = self._get_next_page_number()
+        
         if self.var_two_halves.get():
             w, h = img.size
             left = img.crop((0, 0, w//2, h)); right = img.crop((w//2, 0, w, h))
             # Izquierda = reverso, Derecha = anverso
-            left_path = proj.pages_dir / f"{ts}_reverso.jpg"; right_path = proj.pages_dir / f"{ts}_anverso.jpg"
-            left.save(left_path, "JPEG", quality=92); right.save(right_path, "JPEG", quality=92)
+            left_path = proj.pages_dir / f"page_{next_num:04d}.jpg"
+            right_path = proj.pages_dir / f"page_{next_num+1:04d}.jpg"
+            left.save(left_path, "JPEG", quality=92)
+            right.save(right_path, "JPEG", quality=92)
             self.show_toast(f"Guardadas: {left_path.name}, {right_path.name}")
         else:
-            face = self.var_face.get()
-            out_path = proj.pages_dir / f"{ts}_{face}.jpg"; img.save(out_path, "JPEG", quality=92)
+            out_path = proj.pages_dir / f"page_{next_num:04d}.jpg"
+            img.save(out_path, "JPEG", quality=92)
             self.show_toast(f"Guardada: {out_path.name}")
         self.refresh_gallery()
+    
+    def _get_next_page_number(self):
+        """Get the next page number based on existing images."""
+        proj = self.app.project
+        if proj is None or not proj.pages_dir.exists():
+            return 1
+        
+        # Find all page_NNNN.jpg files
+        import re
+        max_num = 0
+        for img_file in proj.pages_dir.glob("page_*.jpg"):
+            match = re.match(r'page_(\d+)\.jpg', img_file.name)
+            if match:
+                num = int(match.group(1))
+                if num > max_num:
+                    max_num = num
+        
+        return max_num + 1
     
     def refresh_gallery(self):
         """Load and display all images from project pages directory with thumbnails."""
@@ -698,10 +721,10 @@ class ScanFrame(ttk.Frame):
     def auto_crop_page(self):
         """Capture a frame, detect a page contour and save a perspective-corrected crop to project folder."""
         if cv2 is None:
-            messagebox.showwarning("Recortar", "OpenCV no está disponible. Instale opencv-python para usar recorte automático.")
+            self.show_toast("⚠ OpenCV no disponible. Instale opencv-python.")
             return
         if self.cap is None:
-            messagebox.showwarning("Recortar", "Cámara no conectada.")
+            self.show_toast("⚠ Cámara no conectada")
             return
         ret, frame_bgr = self.cap.read()
         if not ret or frame_bgr is None:
@@ -715,7 +738,7 @@ class ScanFrame(ttk.Frame):
         except Exception:
             pts = None
         if not pts:
-            messagebox.showinfo("Recortar", "No se detectó una página. Asegúrese de que la página esté visible y con buen contraste.")
+            self.show_toast("⚠ No se detectó una página")
             return
         ordered = self._order_points(pts)
         if len(ordered) != 4:
@@ -743,12 +766,17 @@ class ScanFrame(ttk.Frame):
             warped = cv2.warpPerspective(frame_bgr, M, (maxWidth, maxHeight))
             warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
             pil = Image.fromarray(warped_rgb)
+            # Apply brightness/contrast adjustments
+            pil = ImageEnhance.Brightness(pil).enhance(self.s_brightness.get())
+            pil = ImageEnhance.Contrast(pil).enhance(self.s_contrast.get())
             proj = self.app.project
             if proj is None:
-                messagebox.showinfo("Recortar", "Cree o abra un proyecto para guardar el recorte.")
+                self.show_toast("⚠ Cree o abra un proyecto para guardar")
                 return
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            out_path = proj.pages_dir / f"{ts}_crop.jpg"
+            
+            # Get next page number based on last image in gallery
+            next_num = self._get_next_page_number()
+            out_path = proj.pages_dir / f"page_{next_num:04d}.jpg"
             pil.save(out_path, "JPEG", quality=92)
             self.show_toast(f"Recorte guardado: {out_path.name}")
             self.refresh_gallery()
@@ -826,7 +854,7 @@ class GeoDocsScannerApp(tk.Tk):
         pinfo = ProjectInfo(titulo=title, carpeta_raiz=proj_path); self.project = pinfo
         self._save_project_to_global_db(pinfo)
         self._save_last_project(proj_path)
-        messagebox.showinfo("Proyecto", f"Proyecto creado en:\n{pinfo.carpeta_raiz}")
+        self.frames["scan"].show_toast(f"✓ Proyecto creado: {pinfo.titulo}")
         self.show_frame("scan")
     def open_project(self):
         root_dir = filedialog.askdirectory(title="Seleccione carpeta del proyecto")
@@ -836,7 +864,8 @@ class GeoDocsScannerApp(tk.Tk):
             messagebox.showerror("Proyecto", "Carpeta inválida: no contiene 'paginas/'."); return
         title = proj_path.name; self.project = ProjectInfo(titulo=title, carpeta_raiz=proj_path)
         self._save_last_project(proj_path)
-        messagebox.showinfo("Proyecto", f"Proyecto abierto: {title}"); self.show_frame("scan")
+        self.frames["scan"].show_toast(f"✓ Proyecto abierto: {title}")
+        self.show_frame("scan")
     def _save_project_to_global_db(self, proj: ProjectInfo):
         dbp = Path.cwd() / GLOBAL_DB; conn = sqlite3.connect(dbp); cur = conn.cursor()
         cur.execute("""INSERT INTO proyectos (titulo, signatura, tipo_documento, autor, tema, etiquetas, fecha, carpeta_raiz)
@@ -913,6 +942,8 @@ class GeoDocsScannerApp(tk.Tk):
                 if proj_path.exists() and (proj_path / "paginas").exists():
                     title = proj_path.name
                     self.project = ProjectInfo(titulo=title, carpeta_raiz=proj_path)
+                    # Refresh gallery after loading project
+                    self.after(100, lambda: self.frames["scan"].refresh_gallery())
         except Exception:
             pass
 
