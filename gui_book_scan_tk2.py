@@ -22,6 +22,11 @@ try:
 except Exception:
     cv2 = None
 
+try:
+    import psutil  # Opcional para verificación de instancia única
+except Exception:
+    psutil = None
+
 from PIL import Image, ImageTk, ImageEnhance
 
 APP_NAME = "GeoDocs Scanner"
@@ -179,7 +184,7 @@ class ScanFrame(ttk.Frame):
         
         self.gallery_inner.bind("<Configure>", lambda e: self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all")))
         self.gallery_canvas.bind("<Double-Button-1>", lambda e: self.preview_image())
-        self.gallery_canvas.bind("<Delete>", lambda e: self.delete_image())
+        # DELETE removed from canvas - only works via button
         
         # Reorder buttons
         btn_frame = ttk.Frame(gallery_frame)
@@ -247,8 +252,14 @@ class ScanFrame(ttk.Frame):
         self.gallery_thumbnails = []  # Store PhotoImage references
         self.gallery_frames = []  # Store frame widgets
         self.selected_gallery_idx = None
+        self.drag_data = {"item": None, "y": 0}
         self.refresh_cameras(); self.bind_all_shortcuts()
         self.refresh_gallery()
+    
+    def on_show(self):
+        """Called when frame is shown - refresh gallery to load images."""
+        self.refresh_gallery()
+    
     def refresh_cameras(self):
         cams = detect_cameras()
         if not cams:
@@ -414,9 +425,12 @@ class ScanFrame(ttk.Frame):
         if proj is None or not proj.pages_dir.exists():
             return
         
-        # Find all image files
+        # Find all image files - use set to avoid duplicates
+        img_set = set()
         for ext in ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"]:
-            self.gallery_images.extend(proj.pages_dir.glob(ext))
+            for img in proj.pages_dir.glob(ext):
+                img_set.add(img)
+        self.gallery_images = list(img_set)
         
         # Sort by name
         self.gallery_images.sort(key=lambda p: p.name)
@@ -448,6 +462,10 @@ class ScanFrame(ttk.Frame):
                 for widget in [item_frame, img_label, name_label]:
                     widget.bind("<Button-1>", lambda e, i=idx: self.select_gallery_item(i))
                     widget.bind("<Double-Button-1>", lambda e, i=idx: self.preview_image())
+                    # Drag and drop bindings
+                    widget.bind("<ButtonPress-1>", lambda e, i=idx: self.on_drag_start(e, i))
+                    widget.bind("<B1-Motion>", self.on_drag_motion)
+                    widget.bind("<ButtonRelease-1>", self.on_drag_release)
                 
             except Exception as e:
                 print(f"Error loading thumbnail for {img_path.name}: {e}")
@@ -533,6 +551,61 @@ class ScanFrame(ttk.Frame):
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo borrar: {e}")
             self.refresh_gallery()
+    
+    def on_drag_start(self, event, idx):
+        """Start dragging an item."""
+        self.drag_data["item"] = idx
+        self.drag_data["y"] = event.y_root
+        self.select_gallery_item(idx)
+        if idx < len(self.gallery_frames):
+            self.gallery_frames[idx].config(relief="groove")
+    
+    def on_drag_motion(self, event):
+        """Handle drag motion."""
+        if self.drag_data["item"] is None:
+            return
+        # Visual feedback during drag
+        delta_y = event.y_root - self.drag_data["y"]
+        if abs(delta_y) > 10:  # Threshold to start visual drag
+            idx = self.drag_data["item"]
+            if idx < len(self.gallery_frames):
+                self.gallery_frames[idx].config(bg="#5a5a5a")
+    
+    def on_drag_release(self, event):
+        """Handle drag release and reorder if needed."""
+        if self.drag_data["item"] is None:
+            return
+        
+        drag_idx = self.drag_data["item"]
+        
+        # Determine drop position based on y coordinate
+        # Find which item the cursor is over
+        drop_idx = None
+        for i, frame in enumerate(self.gallery_frames):
+            try:
+                frame_y = frame.winfo_rooty()
+                frame_h = frame.winfo_height()
+                if frame_y <= event.y_root <= frame_y + frame_h:
+                    drop_idx = i
+                    break
+            except Exception:
+                pass
+        
+        # Reset visual state
+        if drag_idx < len(self.gallery_frames):
+            self.gallery_frames[drag_idx].config(relief="raised")
+        
+        # Perform reorder if valid drop
+        if drop_idx is not None and drop_idx != drag_idx:
+            # Remove from old position and insert at new position
+            item = self.gallery_images.pop(drag_idx)
+            self.gallery_images.insert(drop_idx, item)
+            self._rename_sequence()
+            self.refresh_gallery()
+            self.select_gallery_item(drop_idx)
+        
+        # Clear drag data
+        self.drag_data = {"item": None, "y": 0}
     
     def preview_image(self):
         """Open a window showing the selected image at full size."""
@@ -698,14 +771,29 @@ class GeoDocsScannerApp(tk.Tk):
         self.title(f"{APP_NAME} — {APP_VERSION}"); self.geometry("1100x780"); self.minsize(900, 640)
         self.project: Optional[ProjectInfo] = None
         init_global_db(Path.cwd())
+        
+        # Check for single instance
+        self.lock_file = Path.cwd() / ".geodocs_scanner.lock"
+        if not self._acquire_lock():
+            messagebox.showerror("Instancia activa", "Ya hay una instancia de GeoDocs Scanner ejecutándose.")
+            self.destroy()
+            return
+        
         self._build_menu()
         container = ttk.Frame(self); container.pack(fill="both", expand=True)
         self.frames = {"start": StartFrame(container, self), "scan": ScanFrame(container, self), "annot": AnnotationFrame(container, self)}
         for f in self.frames.values(): f.grid(row=0, column=0, sticky="nsew")
+        
+        # Load last project if exists
+        self._load_last_project()
+        
         self.show_frame("start")
         self.bind_all("<Control-n>", lambda e: self.new_project())
         self.bind_all("<Control-o>", lambda e: self.open_project())
         self.bind_all("<F6>", lambda e: self.toggle_frames())
+        
+        # Release lock on close
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
     def _build_menu(self):
         menubar = tk.Menu(self)
         m_file = tk.Menu(menubar, tearoff=0)
@@ -737,6 +825,7 @@ class GeoDocsScannerApp(tk.Tk):
         proj_path = Path(root_dir) / title
         pinfo = ProjectInfo(titulo=title, carpeta_raiz=proj_path); self.project = pinfo
         self._save_project_to_global_db(pinfo)
+        self._save_last_project(proj_path)
         messagebox.showinfo("Proyecto", f"Proyecto creado en:\n{pinfo.carpeta_raiz}")
         self.show_frame("scan")
     def open_project(self):
@@ -746,6 +835,7 @@ class GeoDocsScannerApp(tk.Tk):
         if not pages.exists():
             messagebox.showerror("Proyecto", "Carpeta inválida: no contiene 'paginas/'."); return
         title = proj_path.name; self.project = ProjectInfo(titulo=title, carpeta_raiz=proj_path)
+        self._save_last_project(proj_path)
         messagebox.showinfo("Proyecto", f"Proyecto abierto: {title}"); self.show_frame("scan")
     def _save_project_to_global_db(self, proj: ProjectInfo):
         dbp = Path.cwd() / GLOBAL_DB; conn = sqlite3.connect(dbp); cur = conn.cursor()
@@ -761,6 +851,70 @@ class GeoDocsScannerApp(tk.Tk):
         try: self.frames["scan"].close_camera()
         except Exception: pass
         self.destroy()
+    
+    def _acquire_lock(self) -> bool:
+        """Try to acquire lock file for single instance."""
+        try:
+            if self.lock_file.exists():
+                # Check if process is still running
+                try:
+                    pid_str = self.lock_file.read_text().strip()
+                    pid = int(pid_str)
+                    # Try to check if process exists (platform-specific)
+                    if psutil is not None:
+                        if psutil.pid_exists(pid):
+                            return False
+                except Exception:
+                    # If we can't verify, remove stale lock
+                    self.lock_file.unlink()
+            
+            # Create lock file with our PID
+            self.lock_file.write_text(str(os.getpid()))
+            return True
+        except Exception:
+            # If psutil not available, try simple file lock
+            try:
+                if self.lock_file.exists():
+                    return False
+                self.lock_file.write_text(str(os.getpid()))
+                return True
+            except Exception:
+                return True  # If can't create lock, allow anyway
+    
+    def _release_lock(self):
+        """Release lock file."""
+        try:
+            if self.lock_file.exists():
+                self.lock_file.unlink()
+        except Exception:
+            pass
+    
+    def _on_closing(self):
+        """Handle window close event."""
+        self._release_lock()
+        self.quit_app()
+    
+    def _save_last_project(self, proj_path: Path):
+        """Save last opened project to config."""
+        try:
+            cfg = load_json(Path.cwd() / REST_CONFIG, {})
+            cfg["last_project"] = str(proj_path)
+            save_json(Path.cwd() / REST_CONFIG, cfg)
+        except Exception:
+            pass
+    
+    def _load_last_project(self):
+        """Load last opened project from config."""
+        try:
+            cfg = load_json(Path.cwd() / REST_CONFIG, {})
+            last_proj = cfg.get("last_project")
+            if last_proj:
+                proj_path = Path(last_proj)
+                if proj_path.exists() and (proj_path / "paginas").exists():
+                    title = proj_path.name
+                    self.project = ProjectInfo(titulo=title, carpeta_raiz=proj_path)
+        except Exception:
+            pass
 
 def main():
     app = GeoDocsScannerApp(); app.mainloop()
