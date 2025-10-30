@@ -153,7 +153,42 @@ class ScanFrame(ttk.Frame):
     def __init__(self, master, app):
         super().__init__(master, padding=8)
         self.app = app
-        toolbar = ttk.Frame(self); toolbar.grid(row=0, column=0, sticky="ew"); toolbar.columnconfigure(6, weight=1)
+        
+        # Main container with left gallery and right scanner
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+        
+        # LEFT PANEL: Gallery
+        gallery_frame = ttk.Frame(self, width=200)
+        gallery_frame.grid(row=0, column=0, sticky="nsew", padx=(0,8))
+        gallery_frame.rowconfigure(1, weight=1)
+        
+        ttk.Label(gallery_frame, text="Galería", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, pady=(0,4), sticky="w")
+        
+        # Listbox for thumbnails
+        self.gallery_listbox = tk.Listbox(gallery_frame, width=25, height=20)
+        self.gallery_listbox.grid(row=1, column=0, sticky="nsew")
+        self.gallery_listbox.bind("<Double-Button-1>", lambda e: self.preview_image())
+        self.gallery_listbox.bind("<Delete>", lambda e: self.delete_image())
+        
+        gallery_scroll = ttk.Scrollbar(gallery_frame, orient="vertical", command=self.gallery_listbox.yview)
+        gallery_scroll.grid(row=1, column=1, sticky="ns")
+        self.gallery_listbox.config(yscrollcommand=gallery_scroll.set)
+        
+        # Reorder buttons
+        btn_frame = ttk.Frame(gallery_frame)
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=4)
+        ttk.Button(btn_frame, text="↑", width=3, command=self.move_up).grid(row=0, column=0, padx=2)
+        ttk.Button(btn_frame, text="↓", width=3, command=self.move_down).grid(row=0, column=1, padx=2)
+        ttk.Button(btn_frame, text="🗑", width=3, command=self.delete_image).grid(row=0, column=2, padx=2)
+        
+        # RIGHT PANEL: Scanner controls
+        scanner_frame = ttk.Frame(self)
+        scanner_frame.grid(row=0, column=1, sticky="nsew")
+        scanner_frame.rowconfigure(2, weight=1)
+        scanner_frame.columnconfigure(0, weight=1)
+        
+        toolbar = ttk.Frame(scanner_frame); toolbar.grid(row=0, column=0, sticky="ew"); toolbar.columnconfigure(6, weight=1)
         ttk.Label(toolbar, text="Cámara:").grid(row=0, column=0, padx=(0,4))
         self.cmb_cam = ttk.Combobox(toolbar, width=10, state="readonly"); self.cmb_cam.grid(row=0, column=1)
         ttk.Button(toolbar, text="Refrescar", command=self.refresh_cameras).grid(row=0, column=2, padx=6)
@@ -181,7 +216,7 @@ class ScanFrame(ttk.Frame):
         self.cmb_detect_interval.bind('<<ComboboxSelected>>', lambda e: self._on_detect_interval_changed())
         self.lbl_detect_status = ttk.Label(toolbar, text=f"Detección: 1/{self._detect_interval}")
         self.lbl_detect_status.grid(row=0, column=11, padx=(8,0))
-        sliders = ttk.Frame(self); sliders.grid(row=1, column=0, sticky="ew", pady=(6,4))
+        sliders = ttk.Frame(scanner_frame); sliders.grid(row=1, column=0, sticky="ew", pady=(6,4))
         ttk.Label(sliders, text="Brillo").grid(row=0, column=0, padx=(0,4))
         self.s_brightness = tk.DoubleVar(value=1.0)
         ttk.Scale(sliders, variable=self.s_brightness, from_=0.5, to=1.5, orient="horizontal").grid(row=0, column=1, sticky="ew");
@@ -189,12 +224,12 @@ class ScanFrame(ttk.Frame):
         self.s_contrast = tk.DoubleVar(value=1.0)
         ttk.Scale(sliders, variable=self.s_contrast, from_=0.5, to=1.5, orient="horizontal").grid(row=0, column=3, sticky="ew")
         sliders.columnconfigure(1, weight=1); sliders.columnconfigure(3, weight=1)
-        self.canvas = tk.Canvas(self, width=960, height=600, bg="#111"); self.canvas.grid(row=2, column=0, pady=6, sticky="nsew")
+        self.canvas = tk.Canvas(scanner_frame, width=960, height=600, bg="#111"); self.canvas.grid(row=2, column=0, pady=6, sticky="nsew")
         # persistent image item to avoid flicker
         self._tkimg = None
         self._image_item = self.canvas.create_image(0, 0, anchor="nw", image=None)
-        self.rowconfigure(2, weight=1); self.columnconfigure(0, weight=1)
-        bottom = ttk.Frame(self); bottom.grid(row=3, column=0, sticky="ew", pady=(6,2))
+        scanner_frame.rowconfigure(2, weight=1); scanner_frame.columnconfigure(0, weight=1)
+        bottom = ttk.Frame(scanner_frame); bottom.grid(row=3, column=0, sticky="ew", pady=(6,2))
         ttk.Button(bottom, text="Capturar (SPACE)", command=self.capture).grid(row=0, column=0, padx=6)
         ttk.Button(bottom, text="Guardar imagen", command=self.capture).grid(row=0, column=1, padx=6)
         ttk.Button(bottom, text="Volver", command=lambda: self.app.show_frame("start")).grid(row=0, column=2, padx=6)
@@ -202,7 +237,9 @@ class ScanFrame(ttk.Frame):
         self.cap = None; self._preview_running = False; self._tkimg = None
         self._last_detected = None
         self._frame_counter = 0
+        self.gallery_images = []  # Store image paths for gallery
         self.refresh_cameras(); self.bind_all_shortcuts()
+        self.refresh_gallery()
     def refresh_cameras(self):
         cams = detect_cameras()
         if not cams:
@@ -340,16 +377,122 @@ class ScanFrame(ttk.Frame):
         proj = self.app.project
         if proj is None:
             messagebox.showinfo("Proyecto", "Cree o abra un proyecto para guardar."); return
-        face = self.var_face.get(); ts = time.strftime("%Y%m%d_%H%M%S")
+        ts = time.strftime("%Y%m%d_%H%M%S")
         if self.var_two_halves.get():
             w, h = img.size
             left = img.crop((0, 0, w//2, h)); right = img.crop((w//2, 0, w, h))
-            left_path = proj.pages_dir / f"{ts}_{face}_L.jpg"; right_path = proj.pages_dir / f"{ts}_{face}_R.jpg"
+            # Izquierda = reverso, Derecha = anverso
+            left_path = proj.pages_dir / f"{ts}_reverso.jpg"; right_path = proj.pages_dir / f"{ts}_anverso.jpg"
             left.save(left_path, "JPEG", quality=92); right.save(right_path, "JPEG", quality=92)
-            messagebox.showinfo("Guardar", f"Guardadas 2 páginas:\n{left_path.name}\n{right_path.name}")
+            self.show_toast(f"Guardadas: {left_path.name}, {right_path.name}")
         else:
+            face = self.var_face.get()
             out_path = proj.pages_dir / f"{ts}_{face}.jpg"; img.save(out_path, "JPEG", quality=92)
-            messagebox.showinfo("Guardar", f"Guardada: {out_path.name}")
+            self.show_toast(f"Guardada: {out_path.name}")
+        self.refresh_gallery()
+    
+    def refresh_gallery(self):
+        """Load and display all images from project pages directory."""
+        self.gallery_listbox.delete(0, tk.END)
+        self.gallery_images = []
+        proj = self.app.project
+        if proj is None or not proj.pages_dir.exists():
+            return
+        # Find all image files
+        for ext in ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"]:
+            self.gallery_images.extend(proj.pages_dir.glob(ext))
+        # Sort by name
+        self.gallery_images.sort(key=lambda p: p.name)
+        # Display in listbox
+        for img_path in self.gallery_images:
+            self.gallery_listbox.insert(tk.END, img_path.name)
+    
+    def move_up(self):
+        """Move selected image up in the list and rename files to maintain order."""
+        sel = self.gallery_listbox.curselection()
+        if not sel or sel[0] == 0:
+            return
+        idx = sel[0]
+        # Swap in list
+        self.gallery_images[idx], self.gallery_images[idx-1] = self.gallery_images[idx-1], self.gallery_images[idx]
+        self._rename_sequence()
+        self.refresh_gallery()
+        self.gallery_listbox.selection_set(idx-1)
+    
+    def move_down(self):
+        """Move selected image down in the list and rename files to maintain order."""
+        sel = self.gallery_listbox.curselection()
+        if not sel or sel[0] >= len(self.gallery_images) - 1:
+            return
+        idx = sel[0]
+        # Swap in list
+        self.gallery_images[idx], self.gallery_images[idx+1] = self.gallery_images[idx+1], self.gallery_images[idx]
+        self._rename_sequence()
+        self.refresh_gallery()
+        self.gallery_listbox.selection_set(idx+1)
+    
+    def _rename_sequence(self):
+        """Rename all files in gallery_images to maintain sequential order."""
+        proj = self.app.project
+        if proj is None:
+            return
+        import tempfile
+        # Rename to temp names first to avoid conflicts
+        temp_paths = []
+        for i, img_path in enumerate(self.gallery_images):
+            suffix = img_path.suffix
+            temp_name = f"_tmp_{i:04d}{suffix}"
+            temp_path = proj.pages_dir / temp_name
+            try:
+                img_path.rename(temp_path)
+                temp_paths.append(temp_path)
+            except Exception:
+                temp_paths.append(img_path)
+        # Now rename to final sequence
+        for i, temp_path in enumerate(temp_paths):
+            suffix = temp_path.suffix
+            final_name = f"page_{i+1:04d}{suffix}"
+            final_path = proj.pages_dir / final_name
+            try:
+                temp_path.rename(final_path)
+                self.gallery_images[i] = final_path
+            except Exception:
+                self.gallery_images[i] = temp_path
+    
+    def delete_image(self):
+        """Delete selected image from disk and refresh gallery."""
+        sel = self.gallery_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        img_path = self.gallery_images[idx]
+        if messagebox.askyesno("Borrar", f"¿Borrar {img_path.name}?"):
+            try:
+                img_path.unlink()
+                self.show_toast(f"Borrada: {img_path.name}")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo borrar: {e}")
+            self.refresh_gallery()
+    
+    def preview_image(self):
+        """Open a window showing the selected image at full size."""
+        sel = self.gallery_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        img_path = self.gallery_images[idx]
+        try:
+            preview_win = tk.Toplevel(self)
+            preview_win.title(img_path.name)
+            preview_win.geometry("800x600")
+            img = Image.open(img_path)
+            img.thumbnail((780, 580), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+            lbl = tk.Label(preview_win, image=photo)
+            lbl.image = photo  # keep reference
+            lbl.pack(expand=True)
+        except Exception as e:
+            messagebox.showerror("Preview", f"Error al abrir imagen: {e}")
     def bind_all_shortcuts(self):
         self.bind_all("<space>", lambda e: self.capture())
         self.bind_all("<Control-s>", lambda e: self.capture())
@@ -380,6 +523,18 @@ class ScanFrame(ttk.Frame):
             pass
     def on_show(self): pass
     def on_hide(self): self.close_camera()
+
+    def show_toast(self, message: str, duration: int = 2000):
+        """Show a temporary toast notification overlay on the canvas."""
+        try:
+            # Create a semi-transparent label overlay
+            toast = tk.Label(self, text=message, bg="#333333", fg="#ffffff", 
+                           font=("Segoe UI", 10), padx=16, pady=8, relief="flat")
+            toast.place(relx=0.5, rely=0.05, anchor="n")
+            # Auto-destroy after duration
+            self.after(duration, toast.destroy)
+        except Exception:
+            pass
 
     def _order_points(self, pts: List[Tuple[int,int]]) -> List[Tuple[float,float]]:
         """Return points ordered as (tl, tr, br, bl) in a robust way.
@@ -463,7 +618,8 @@ class ScanFrame(ttk.Frame):
             ts = time.strftime("%Y%m%d_%H%M%S")
             out_path = proj.pages_dir / f"{ts}_crop.jpg"
             pil.save(out_path, "JPEG", quality=92)
-            messagebox.showinfo("Recortar", f"Recorte guardado: {out_path.name}")
+            self.show_toast(f"Recorte guardado: {out_path.name}")
+            self.refresh_gallery()
         except Exception as e:
             messagebox.showerror("Recortar", f"Error realizando recorte: {e}")
 
