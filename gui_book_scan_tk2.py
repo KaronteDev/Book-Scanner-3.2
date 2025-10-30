@@ -252,6 +252,75 @@ def detect_two_pages(img_array):
     except:
         return False
 
+def detect_two_pages_line(img_array):
+    """Detect a (possibly tilted) center fold line indicating two pages.
+    Returns ((x1,y1),(x2,y2)) in source image coordinates if found, else None.
+    Two-stage approach: Hough for clear lines; fallback to Scharr X column projection
+    constrained to bright page regions.
+    """
+    if cv2 is None:
+        return None
+    try:
+        import numpy as np, math
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        h, w = gray.shape
+        cx = w/2.0
+        # ROI around center (30%-70% width) to avoid borders/clamps
+        rx0 = int(w * 0.30); rx1 = int(w * 0.70)
+        roi = gray[:, rx0:rx1]
+        # Equalize to improve low-contrast gutters
+        try:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            roi_eq = clahe.apply(roi)
+        except Exception:
+            roi_eq = roi
+        # First attempt: Hough on Canny
+        edges = cv2.Canny(cv2.GaussianBlur(roi_eq, (5,5), 0), 50, 150)
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=85, minLineLength=max(30, h//4), maxLineGap=22)
+        best = None; best_score = -1.0
+        if lines is not None and len(lines) > 0:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                X1, X2, Y1, Y2 = x1 + rx0, x2 + rx0, y1, y2
+                dx, dy = (X2 - X1), (Y2 - Y1)
+                length = math.hypot(dx, dy)
+                if length < h * 0.3:
+                    continue
+                angle = abs(math.atan2(dy, dx))
+                angle_score = math.exp(-((abs(math.pi/2 - angle))/0.35)**2)
+                xm = (X1 + X2) / 2.0
+                center_prox = math.exp(-((abs(xm - cx))/(w*0.18))**2)
+                length_score = min(1.0, length / (h*0.8))
+                score = angle_score*0.6 + center_prox*0.25 + length_score*0.15
+                if score > best_score:
+                    best_score = score; best = ((int(X1), int(Y1)), (int(X2), int(Y2)))
+        # Fallback if Hough weak or none: Scharr X column projection inside bright mask
+        if best is None or best_score < 0.6:
+            # Bright mask to suppress table/background
+            _, mask = cv2.threshold(roi_eq, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
+            mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_RECT, (9,3)), iterations=1)
+            # Scharr X emphasizes vertical transitions
+            scharr = cv2.Scharr(roi_eq, cv2.CV_32F, 1, 0)
+            scharr = cv2.convertScaleAbs(scharr)
+            scharr = cv2.bitwise_and(scharr, scharr, mask=mask)
+            # Column projection with Gaussian center weighting
+            col_sum = scharr.sum(axis=0).astype(np.float32)
+            if col_sum.size > 0:
+                cols = np.arange(col_sum.size, dtype=np.float32)
+                # Map cols to full-image x to weight proximity to center
+                full_x = cols + rx0
+                center_weight = np.exp(-((np.abs(full_x - cx))/(w*0.18))**2)
+                score_vec = col_sum * center_weight
+                j = int(np.argmax(score_vec))
+                peak = score_vec[j]; med = float(np.median(score_vec)); std = float(np.std(score_vec) + 1e-6)
+                if peak > med + 1.5*std and (rx0 + j) > int(w*0.25) and (rx0 + j) < int(w*0.75):
+                    x_split = int(rx0 + j)
+                    best = ((x_split, 0), (x_split, h))
+        return best
+    except Exception:
+        return None
+
 def get_calibration_for_camera(camera_idx, project_name=None):
     """Load calibration settings for specific camera and project."""
     try:
@@ -713,9 +782,9 @@ class ScannerWindow(tk.Toplevel):
         ttk.Button(toolbar, text="Desconectar", command=self.close_camera).grid(row=0, column=4, padx=6)
         self.var_two_halves = tk.BooleanVar(value=False)
         ttk.Checkbutton(toolbar, text="Dos mitades fijas", variable=self.var_two_halves).grid(row=0, column=5, padx=12)
-        ttk.Label(toolbar, text="Anverso/Reverso:").grid(row=0, column=6, padx=(12,4), sticky="e")
-        self.var_face = tk.StringVar(value="anverso")
-        ttk.Combobox(toolbar, textvariable=self.var_face, values=["anverso","reverso"], width=10, state="readonly").grid(row=0, column=7)
+        ttk.Label(toolbar, text="Lado:").grid(row=0, column=6, padx=(12,4), sticky="e")
+        self.var_face = tk.StringVar(value="ambas")
+        ttk.Combobox(toolbar, textvariable=self.var_face, values=["ambas","anverso","reverso"], width=10, state="readonly").grid(row=0, column=7)
         # Page detection toggle
         self.var_detect_page = tk.BooleanVar(value=True)
         ttk.Checkbutton(toolbar, text="Detectar página", variable=self.var_detect_page).grid(row=0, column=8, padx=(12,0))
@@ -773,6 +842,7 @@ class ScannerWindow(tk.Toplevel):
         ttk.Button(bottom, text="Recortar página", command=self.auto_crop_page).grid(row=0, column=3, padx=6)
         self.cap = None; self._preview_running = False; self._tkimg = None
         self._last_detected = None
+        self._last_middle_line = None
         self._frame_counter = 0
         self.gallery_images = []  # Store image paths for gallery
         self.gallery_thumbnails = []  # Store PhotoImage references
@@ -907,20 +977,27 @@ class ScannerWindow(tk.Toplevel):
             if abs(self.s_contrast.get()-1.0) > 1e-3: img = ImageEnhance.Contrast(img).enhance(self.s_contrast.get())
             # Run page detection on the raw OpenCV frame when enabled (throttle 1/5 frames)
             detected = None
+            midline = None
             try:
                 if cv2 is not None and self.var_detect_page.get():
                     self._frame_counter += 1
                     if self._frame_counter % self._detect_interval == 0:
                         detected = self._detect_page_contour_from_frame(frame)
                         self._last_detected = detected
+                        # also compute middle line at the same cadence
+                        midline = detect_two_pages_line(frame)
+                        self._last_middle_line = midline
                     else:
                         detected = self._last_detected
+                        midline = getattr(self, "_last_middle_line", None)
                 else:
                     # detection disabled -> clear cached detection
                     self._last_detected = None
+                    self._last_middle_line = None
                     detected = None
+                    midline = None
             except Exception:
-                detected = None
+                detected = None; midline = None
             # Safely query canvas size; it may be destroyed during shutdown
             try:
                 cw = self.canvas.winfo_width(); ch = self.canvas.winfo_height()
@@ -931,10 +1008,10 @@ class ScannerWindow(tk.Toplevel):
             orig_size = (frame.shape[1], frame.shape[0])
             # Schedule UI update on main thread to avoid Tkinter threading issues
             try:
-                self.after(0, lambda im=img, os=orig_size, det=detected: self._draw_preview(im, orig_size=os, orig_points=det))
+                self.after(0, lambda im=img, os=orig_size, det=detected, ml=midline: self._draw_preview(im, orig_size=os, orig_points=det, midline=ml))
             except Exception:
                 # fallback to direct call if scheduling fails
-                self._draw_preview(img, orig_size=orig_size, orig_points=detected)
+                self._draw_preview(img, orig_size=orig_size, orig_points=detected, midline=midline)
             time.sleep(0.02)
     def _detect_page_contour_from_frame(self, frame_rgb) -> Optional[List[Tuple[int,int]]]:
         """Detect a quad-like page contour in the RGB frame and return 4 points (x,y) or None.
@@ -966,7 +1043,7 @@ class ScannerWindow(tk.Toplevel):
     def _fit_to_canvas(self, img: Image.Image, size: Tuple[int,int]) -> Image.Image:
         cw, ch = size; cw = cw if cw>1 else 960; ch = ch if ch>1 else 600
         img.thumbnail((cw, ch), Image.LANCZOS); return img
-    def _draw_preview(self, img: Image.Image, orig_size: Optional[Tuple[int,int]] = None, orig_points: Optional[List[Tuple[int,int]]] = None):
+    def _draw_preview(self, img: Image.Image, orig_size: Optional[Tuple[int,int]] = None, orig_points: Optional[List[Tuple[int,int]]] = None, midline: Optional[Tuple[Tuple[int,int],Tuple[int,int]]] = None):
         """Draw current preview image onto canvas and optionally draw a polygon overlay.
 
         orig_size: (width, height) of the source frame (before scaling).
@@ -988,6 +1065,35 @@ class ScannerWindow(tk.Toplevel):
         # Draw the fixed vertical separator if requested
         if self.var_two_halves.get():
             self.canvas.create_line(cw//2, 0, cw//2, ch, fill="#00ffff", width=2, dash=(6,4), tag="overlay")
+        # Draw detected middle line and shaded regions if any
+        if orig_size and midline:
+            try:
+                (x1,y1),(x2,y2) = midline
+                ow, oh = orig_size; sx = iw / float(ow); sy = ih / float(oh)
+                X1 = x + int(x1 * sx); Y1 = y + int(y1 * sy)
+                X2 = x + int(x2 * sx); Y2 = y + int(y2 * sy)
+                # Draw line
+                self.canvas.create_line(X1, Y1, X2, Y2, fill="#ffcc00", width=3, dash=(8,6), tag="overlay")
+                # Compute intersections with top/bottom of displayed image
+                top_y = y; bot_y = y + ih
+                def clamp(v, lo, hi):
+                    return lo if v < lo else hi if v > hi else v
+                if abs(Y2 - Y1) > 1:
+                    xtop = X1 + (X2 - X1) * ( (top_y - Y1) / float(Y2 - Y1) )
+                    xbot = X1 + (X2 - X1) * ( (bot_y - Y1) / float(Y2 - Y1) )
+                else:
+                    # nearly horizontal; fall back to mid x
+                    xtop = x + iw//2; xbot = x + iw//2
+                xtop = int(clamp(xtop, x, x+iw)); xbot = int(clamp(xbot, x, x+iw))
+                # Left shaded polygon
+                left_poly = [x, top_y, xtop, top_y, xbot, bot_y, x, bot_y]
+                # Right shaded polygon
+                right_poly = [xtop, top_y, x+iw, top_y, x+iw, bot_y, xbot, bot_y]
+                # Draw with stipple to simulate transparency
+                self.canvas.create_polygon(*left_poly, fill="#000000", outline="", stipple="gray25", tag="overlay")
+                self.canvas.create_polygon(*right_poly, fill="#000000", outline="", stipple="gray25", tag="overlay")
+            except Exception:
+                pass
         # Draw detected page polygon if any
         if orig_size and orig_points:
             try:
@@ -1034,7 +1140,7 @@ class ScannerWindow(tk.Toplevel):
             except Exception:
                 pass  # If crop fails, use full frame
         
-        # Apply auto-processing if enabled
+        # Apply auto-processing if enabled (on the current working RGB frame)
         processed_frame = frame_rgb.copy()
         
         # 1. Remove fingers if enabled
@@ -1047,37 +1153,37 @@ class ScannerWindow(tk.Toplevel):
         if self.var_auto_brightness.get():
             processed_frame = auto_adjust_brightness_contrast(processed_frame)
         
-        # 3. Convert to PIL and apply manual adjustments
+        # 3. Auto crop if enabled: re-detect page on the CURRENT frame (avoid using preview cache)
+        if self.var_auto_crop.get():
+            try:
+                pts = self._detect_page_contour_from_frame(processed_frame)
+                if pts and len(pts) >= 4:
+                    ordered = self._order_points(pts)
+                    if len(ordered) == 4:
+                        (tl, tr, br, bl) = ordered
+                        def dist(a, b):
+                            import math
+                            return math.hypot(a[0]-b[0], a[1]-b[1])
+                        widthA = dist(br, bl)
+                        widthB = dist(tr, tl)
+                        maxWidth = max(int(widthA), int(widthB))
+                        heightA = dist(tr, br)
+                        heightB = dist(tl, bl)
+                        maxHeight = max(int(heightA), int(heightB))
+                        if maxWidth > 0 and maxHeight > 0:
+                            import numpy as np
+                            src_pts = np.array(ordered, dtype="float32")
+                            dst_pts = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
+                            M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+                            processed_frame = cv2.warpPerspective(processed_frame, M, (maxWidth, maxHeight))
+            except Exception:
+                # If auto-crop fails, continue with uncropped processed_frame
+                pass
+        
+        # 4. Convert to PIL and apply manual brightness/contrast adjustments AFTER crop
         img = Image.fromarray(processed_frame)
         img = ImageEnhance.Brightness(img).enhance(self.s_brightness.get())
         img = ImageEnhance.Contrast(img).enhance(self.s_contrast.get())
-        
-        # 4. Auto crop if enabled and page detected
-        if self.var_auto_crop.get() and self._last_detected:
-            try:
-                import numpy as np
-                ordered = self._order_points(self._last_detected)
-                if len(ordered) == 4:
-                    (tl, tr, br, bl) = ordered
-                    def dist(a, b):
-                        import math
-                        return math.hypot(a[0]-b[0], a[1]-b[1])
-                    widthA = dist(br, bl)
-                    widthB = dist(tr, tl)
-                    maxWidth = max(int(widthA), int(widthB))
-                    heightA = dist(tr, br)
-                    heightB = dist(tl, bl)
-                    maxHeight = max(int(heightA), int(heightB))
-                    if maxWidth > 0 and maxHeight > 0:
-                        src_pts = np.array(ordered, dtype="float32")
-                        dst_pts = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
-                        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-                        # Re-get processed frame as array
-                        img_array = np.array(img)
-                        warped = cv2.warpPerspective(img_array, M, (maxWidth, maxHeight))
-                        img = Image.fromarray(warped)
-            except Exception:
-                pass  # If auto-crop fails, continue with uncropped image
         
         proj = self.app.project
         if proj is None:
@@ -1086,23 +1192,83 @@ class ScannerWindow(tk.Toplevel):
         # Get next page number based on last image in gallery
         next_num = self._get_next_page_number()
         
-        # Decide if we should split into two pages
-        split_two = False
-        if self.var_two_halves.get():
-            split_two = True
-        else:
-            try:
-                import numpy as np
-                arr = np.array(img.convert("RGB"))
-                if detect_two_pages(arr):
-                    split_two = True
-                    self.show_toast("↔ Detectadas dos páginas; guardando en dos archivos")
-            except Exception:
-                split_two = False
+        # Decide if we should split into two pages and compute the split line on the FINAL image
+        midline_captured = None
+        try:
+            import numpy as np
+            arr_final = np.array(img.convert("RGB"))
+            midline_captured = detect_two_pages_line(arr_final)
+            if midline_captured:
+                # update cache for overlay continuity
+                self._last_middle_line = midline_captured
+        except Exception:
+            midline_captured = None
 
-        if split_two:
+        should_split = self.var_two_halves.get() or (midline_captured is not None)
+
+        if should_split:
             w, h = img.size
-            left = img.crop((0, 0, w//2, h)); right = img.crop((w//2, 0, w, h))
+            # use detected split x if available, else center
+            x_split = w//2
+            try:
+                if midline_captured:
+                    (x1,y1),(x2,y2) = midline_captured
+                    x_split = max(1, min(w-1, int((x1 + x2)//2)))
+            except Exception:
+                x_split = w//2
+            # Split into halves
+            left = img.crop((0, 0, x_split, h)); right = img.crop((x_split, 0, w, h))
+            
+            # If auto-crop is enabled, try to detect and warp each half individually
+            if self.var_auto_crop.get():
+                try:
+                    import numpy as np
+                    # Left half
+                    left_arr = np.array(left.convert("RGB"))
+                    pts_left = self._detect_page_contour_from_frame(left_arr)
+                    if pts_left and len(pts_left) >= 4:
+                        ordered = self._order_points(pts_left)
+                        if len(ordered) == 4:
+                            def dist(a, b):
+                                import math
+                                return math.hypot(a[0]-b[0], a[1]-b[1])
+                            widthA = dist(ordered[2], ordered[3])
+                            widthB = dist(ordered[1], ordered[0])
+                            maxWidth = max(int(widthA), int(widthB))
+                            heightA = dist(ordered[1], ordered[2])
+                            heightB = dist(ordered[0], ordered[3])
+                            maxHeight = max(int(heightA), int(heightB))
+                            if maxWidth > 0 and maxHeight > 0:
+                                src = np.array(ordered, dtype="float32")
+                                dst = np.array([[0,0],[maxWidth-1,0],[maxWidth-1,maxHeight-1],[0,maxHeight-1]], dtype="float32")
+                                M = cv2.getPerspectiveTransform(src, dst)
+                                left_warp = cv2.warpPerspective(left_arr, M, (maxWidth, maxHeight))
+                                left = Image.fromarray(left_warp)
+                    # Right half
+                    right_arr = np.array(right.convert("RGB"))
+                    pts_right = self._detect_page_contour_from_frame(right_arr)
+                    if pts_right and len(pts_right) >= 4:
+                        ordered = self._order_points(pts_right)
+                        if len(ordered) == 4:
+                            def dist(a, b):
+                                import math
+                                return math.hypot(a[0]-b[0], a[1]-b[1])
+                            widthA = dist(ordered[2], ordered[3])
+                            widthB = dist(ordered[1], ordered[0])
+                            maxWidth = max(int(widthA), int(widthB))
+                            heightA = dist(ordered[1], ordered[2])
+                            heightB = dist(ordered[0], ordered[3])
+                            maxHeight = max(int(heightA), int(heightB))
+                            if maxWidth > 0 and maxHeight > 0:
+                                src = np.array(ordered, dtype="float32")
+                                dst = np.array([[0,0],[maxWidth-1,0],[maxWidth-1,maxHeight-1],[0,maxHeight-1]], dtype="float32")
+                                M = cv2.getPerspectiveTransform(src, dst)
+                                right_warp = cv2.warpPerspective(right_arr, M, (maxWidth, maxHeight))
+                                right = Image.fromarray(right_warp)
+                except Exception:
+                    # If any of the per-half crops fail, keep the simple halves
+                    pass
+
             # Izquierda = reverso, Derecha = anverso
             left_path = proj.pages_dir / f"page_{next_num:04d}.jpg"
             right_path = proj.pages_dir / f"page_{next_num+1:04d}.jpg"
@@ -1429,7 +1595,6 @@ class ScannerWindow(tk.Toplevel):
     def bind_all_shortcuts(self):
         self.bind_all("<space>", lambda e: self.capture())
         self.bind_all("<Control-s>", lambda e: self.capture())
-        self.bind_all("<F6>", lambda e: self.app.toggle_frames())
         self.bind_all("<Escape>", lambda e: self.app.quit_app())
         self.bind_all("b", lambda e: self.var_two_halves.set(not self.var_two_halves.get()))
         self.bind_all("<Control-Shift-C>", lambda e: self.auto_crop_page())
@@ -1508,21 +1673,210 @@ class ScannerWindow(tk.Toplevel):
         if not ret or frame_bgr is None:
             messagebox.showerror("Recortar", "No se pudo leer frame de la cámara.", parent=self)
             return
-        # Use RGB copy for detection helper which expects RGB
+        # Work on RGB and honor calibration area like capture()
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        try:
+            if self.calibration_settings and 'calib_area' in self.calibration_settings:
+                h, w = frame_rgb.shape[:2]
+                area = self.calibration_settings['calib_area']
+                x1 = int(area['tl'][0] * w); y1 = int(area['tl'][1] * h)
+                x2 = int(area['br'][0] * w); y2 = int(area['br'][1] * h)
+                frame_rgb = frame_rgb[y1:y2, x1:x2]
+        except Exception:
+            pass
+
+        # If a midline exists, pick the half according to Anverso/Reverso and crop there
+        import numpy as np
+        midline = None
+        try:
+            midline = detect_two_pages_line(frame_rgb)
+        except Exception:
+            midline = None
+
+        roi_rgb = frame_rgb
+        if midline is not None:
+            h, w = frame_rgb.shape[:2]
+            (mx1, my1), (mx2, my2) = midline
+            x_split = max(1, min(w-1, int((mx1 + mx2)//2)))
+            side_choice = self.var_face.get()
+            margin = max(4, int(w * 0.005))
+            
+            # Handle "ambas" mode - capture both sides
+            if side_choice == "ambas":
+                # Process left side (reverso)
+                left_roi = frame_rgb[:, 0:min(x_split + 1, w)]
+                if left_roi.shape[1] > margin:
+                    left_roi = left_roi[:, :-margin]
+                
+                pts_left = None
+                try:
+                    pts_left = self._detect_page_contour_from_frame(left_roi)
+                except Exception:
+                    pts_left = None
+                if not pts_left:
+                    # Fallback for left
+                    try:
+                        gray = cv2.cvtColor(left_roi, cv2.COLOR_RGB2GRAY)
+                        try:
+                            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                            gray = clahe.apply(gray)
+                        except Exception:
+                            pass
+                        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (9,9)))
+                        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (5,5)))
+                        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        if not contours:
+                            edges = cv2.Canny(gray, 50, 150)
+                            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        if contours:
+                            contours = sorted(contours, key=cv2.contourArea, reverse=True)
+                            rect = cv2.minAreaRect(contours[0])
+                            box = cv2.boxPoints(rect)
+                            pts_left = [(int(x), int(y)) for x, y in box]
+                    except Exception:
+                        pass
+                
+                if pts_left:
+                    ordered_left = self._order_points(pts_left)
+                    if len(ordered_left) == 4:
+                        (tl, tr, br, bl) = ordered_left
+                        def dist(a, b):
+                            import math
+                            return math.hypot(a[0]-b[0], a[1]-b[1])
+                        widthA = dist(br, bl); widthB = dist(tr, tl); maxWidth = max(int(widthA), int(widthB))
+                        heightA = dist(tr, br); heightB = dist(tl, bl); maxHeight = max(int(heightA), int(heightB))
+                        if maxWidth > 0 and maxHeight > 0:
+                            try:
+                                src_pts = np.array(ordered_left, dtype="float32")
+                                dst_pts = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
+                                M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+                                warped = cv2.warpPerspective(left_roi, M, (maxWidth, maxHeight))
+                                pil = Image.fromarray(warped)
+                                pil = ImageEnhance.Brightness(pil).enhance(self.s_brightness.get())
+                                pil = ImageEnhance.Contrast(pil).enhance(self.s_contrast.get())
+                                proj = self.app.project
+                                if proj:
+                                    next_num = self._get_next_page_number()
+                                    left_path = proj.pages_dir / f"page_{next_num:04d}_reverso.jpg"
+                                    pil.save(left_path, "JPEG", quality=92)
+                                    self.show_toast(f"Guardado reverso: {left_path.name}")
+                            except Exception:
+                                pass
+                
+                # Process right side (anverso)
+                right_roi = frame_rgb[:, max(x_split - 1, 0):w]
+                if right_roi.shape[1] > margin:
+                    right_roi = right_roi[:, margin:]
+                
+                pts_right = None
+                try:
+                    pts_right = self._detect_page_contour_from_frame(right_roi)
+                except Exception:
+                    pts_right = None
+                if not pts_right:
+                    # Fallback for right
+                    try:
+                        gray = cv2.cvtColor(right_roi, cv2.COLOR_RGB2GRAY)
+                        try:
+                            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                            gray = clahe.apply(gray)
+                        except Exception:
+                            pass
+                        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (9,9)))
+                        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (5,5)))
+                        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        if not contours:
+                            edges = cv2.Canny(gray, 50, 150)
+                            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        if contours:
+                            contours = sorted(contours, key=cv2.contourArea, reverse=True)
+                            rect = cv2.minAreaRect(contours[0])
+                            box = cv2.boxPoints(rect)
+                            pts_right = [(int(x), int(y)) for x, y in box]
+                    except Exception:
+                        pass
+                
+                if pts_right:
+                    ordered_right = self._order_points(pts_right)
+                    if len(ordered_right) == 4:
+                        (tl, tr, br, bl) = ordered_right
+                        def dist(a, b):
+                            import math
+                            return math.hypot(a[0]-b[0], a[1]-b[1])
+                        widthA = dist(br, bl); widthB = dist(tr, tl); maxWidth = max(int(widthA), int(widthB))
+                        heightA = dist(tr, br); heightB = dist(tl, bl); maxHeight = max(int(heightA), int(heightB))
+                        if maxWidth > 0 and maxHeight > 0:
+                            try:
+                                src_pts = np.array(ordered_right, dtype="float32")
+                                dst_pts = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
+                                M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+                                warped = cv2.warpPerspective(right_roi, M, (maxWidth, maxHeight))
+                                pil = Image.fromarray(warped)
+                                pil = ImageEnhance.Brightness(pil).enhance(self.s_brightness.get())
+                                pil = ImageEnhance.Contrast(pil).enhance(self.s_contrast.get())
+                                proj = self.app.project
+                                if proj:
+                                    next_num = self._get_next_page_number()
+                                    right_path = proj.pages_dir / f"page_{next_num:04d}_anverso.jpg"
+                                    pil.save(right_path, "JPEG", quality=92)
+                                    self.show_toast(f"Guardado anverso: {right_path.name}")
+                            except Exception:
+                                pass
+                
+                self.refresh_gallery()
+                return
+            
+            # Single side mode
+            take_right = (side_choice == "anverso")
+            if take_right:
+                roi_rgb = frame_rgb[:, max(x_split - 1, 0):w]
+                if roi_rgb.shape[1] > margin:
+                    roi_rgb = roi_rgb[:, margin:]
+            else:
+                roi_rgb = frame_rgb[:, 0:min(x_split + 1, w)]
+                if roi_rgb.shape[1] > margin:
+                    roi_rgb = roi_rgb[:, :-margin]
+
+        # Detect page contour inside the chosen ROI and warp
         pts = None
         try:
-            pts = self._detect_page_contour_from_frame(frame_rgb)
+            pts = self._detect_page_contour_from_frame(roi_rgb)
         except Exception:
             pts = None
         if not pts:
-            self.show_toast("⚠ No se detectó una página")
+            try:
+                gray = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2GRAY)
+                try:
+                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                    gray = clahe.apply(gray)
+                except Exception:
+                    pass
+                _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (9,9)))
+                mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (5,5)))
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if not contours:
+                    edges = cv2.Canny(gray, 50, 150)
+                    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if contours:
+                    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+                    c = contours[0]
+                    rect = cv2.minAreaRect(c)
+                    box = cv2.boxPoints(rect)
+                    pts = [(int(x), int(y)) for x, y in box]
+                else:
+                    pts = None
+            except Exception:
+                pts = None
+        if not pts:
+            self.show_toast("⚠ No se detectó una página en el área seleccionada")
             return
         ordered = self._order_points(pts)
         if len(ordered) != 4:
             messagebox.showerror("Recortar", "No se pudo ordenar los puntos de la página detectada.", parent=self)
             return
-        # Compute destination size
         (tl, tr, br, bl) = ordered
         def dist(a, b):
             import math
@@ -1537,13 +1891,11 @@ class ScannerWindow(tk.Toplevel):
             messagebox.showerror("Recortar", "Dimensiones inválidas para recorte.", parent=self)
             return
         try:
-            import numpy as np
             src_pts = np.array(ordered, dtype="float32")
             dst_pts = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
             M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-            warped = cv2.warpPerspective(frame_bgr, M, (maxWidth, maxHeight))
-            warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-            pil = Image.fromarray(warped_rgb)
+            warped = cv2.warpPerspective(roi_rgb, M, (maxWidth, maxHeight))
+            pil = Image.fromarray(warped)
             # Apply brightness/contrast adjustments
             pil = ImageEnhance.Brightness(pil).enhance(self.s_brightness.get())
             pil = ImageEnhance.Contrast(pil).enhance(self.s_contrast.get())
@@ -1551,8 +1903,6 @@ class ScannerWindow(tk.Toplevel):
             if proj is None:
                 self.show_toast("⚠ Cree o abra un proyecto para guardar")
                 return
-            
-            # Get next page number based on last image in gallery
             next_num = self._get_next_page_number()
             out_path = proj.pages_dir / f"page_{next_num:04d}.jpg"
             pil.save(out_path, "JPEG", quality=92)
@@ -1619,7 +1969,7 @@ class GeoDocsScannerApp(tk.Tk):
         m_view = tk.Menu(menubar, tearoff=0)
         m_view.add_command(label="📷 Abrir Escáner (F6)", command=self.open_scanner_window)
         m_view.add_command(label="📝 Abrir Anotador (F7)", command=self.open_annotation_window)
-        menubar.add_cascade(label="Ver", menu=m_view)
+        menubar.add_cascade(label="Herramientas", menu=m_view)
         self.config(menu=menubar)
     
     def open_scanner_window(self):
