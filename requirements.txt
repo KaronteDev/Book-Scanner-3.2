@@ -1,0 +1,15 @@
+# pinned numpy for faster installs (added by assistant)
+# If this causes a dependency conflict with opencv-python (which requires numpy<2.3.0), see README notes.
+numpy==2.3.4
+opencv-python
+pillow
+beautifulsoup4
+lxml
+reportlab
+pyttsx3
+pyspellchecker
+language-tool-python
+simpleaudio
+playsound==1.2.2
+flask
+gTTS

@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "interval_hours": 24,
+  "max_pages_per_cycle": 500
+}

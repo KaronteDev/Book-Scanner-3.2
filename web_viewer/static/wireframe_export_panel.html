@@ -1,0 +1,49 @@
+
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Wireframe · Exportaciones</title>
+<style>
+ body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0}
+ main{max-width:980px;margin:0 auto;padding:20px}
+ .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+ .card{border:1px solid #ddd;border-radius:8px;padding:12px}
+ .btn{padding:8px 12px;border:1px solid #ccc;border-radius:6px;background:#f7f7f7;cursor:pointer}
+ .row{display:flex;gap:10px;align-items:center;margin:6px 0}
+</style>
+</head>
+<body>
+<main>
+  <h2>Exportar</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>IIIF</h3>
+      <div class="row"><label><input type="checkbox" checked/> Manifest v3</label></div>
+      <div class="row"><label><input type="checkbox" checked/> Canvases por página</label></div>
+      <div class="row"><input placeholder="Base URL imágenes" style="flex:1"/></div>
+    </div>
+    <div class="card">
+      <h3>TEI-XML</h3>
+      <div class="row"><label><input type="checkbox" checked/> Transcripción corregida</label></div>
+      <div class="row"><label><input type="checkbox" /> Notas/zonas</label></div>
+    </div>
+    <div class="card">
+      <h3>Dublin Core</h3>
+      <div class="row"><label>Título <input placeholder=""/></label></div>
+      <div class="row"><label>Autor <input placeholder=""/></label></div>
+      <div class="row"><label>Fecha <input placeholder=""/></label></div>
+    </div>
+    <div class="card">
+      <h3>GeoJSON</h3>
+      <div class="row"><label><input type="checkbox" checked/> Topónimos</label></div>
+      <div class="row"><label><input type="checkbox" checked/> Anotaciones geolocalizadas</label></div>
+    </div>
+  </div>
+  <div style="margin-top:16px">
+    Carpeta de destino: <input style="min-width:360px" placeholder="/ruta/salida"/> 
+    <button class="btn">Validar</button>
+    <button class="btn">Exportar todo</button>
+  </div>
+</main>
+</body></html>

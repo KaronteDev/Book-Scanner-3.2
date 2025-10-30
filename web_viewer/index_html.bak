@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>GeoDocs — Anotaciones en mapa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://js.arcgis.com/calcite-components/2.12.0/calcite.css">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script type="module" src="https://js.arcgis.com/calcite-components/2.12.0/calcite.esm.js"></script>
+  <script nomodule src="https://js.arcgis.com/calcite-components/2.12.0/calcite.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body class="calcite-mode-light">
+  <calcite-shell content-behind hidden>
+    <calcite-navigation slot="header">
+      <calcite-navigation-logo heading="GeoDocs — Mapa de Anotaciones" description="Visualización geográfica"></calcite-navigation-logo>
+    </calcite-navigation>
+    <div class="layout">
+      <section class="search" id="panel-search">
+        <h4>Buscar</h4>
+        <label>Texto <input id="qText" type="text"></label>
+        <label>Etiquetas <input id="qTags" type="text"></label>
+        <label>Tipo <select id="qType"><option value="">(cualquiera)</option><option>nota</option><option>cita</option><option>referencia</option><option>comentario</option></select></label>
+        <label>Desde <input id="qFrom" type="date"></label>
+        <label>Hasta <input id="qTo" type="date"></label>
+        <button id="btnRunSearch">Filtrar</button>
+      </section>
+      <aside class="sidebar">
+        <h3>Documento: <span id="docTitle"></span></h3>
+        <div id="annoList"></div>
+        <div class="bar">
+          <calcite-button id="btnSync" width="full" appearance="solid">Sincronizar con GeoDocs</calcite-button>
+          <calcite-button id="btnPull" width="full" appearance="outline">Descargar (pull desde servidor)</calcite-button>
+        </div>
+      </aside>
+      <main id="map"></main>
+    </div>
+  </calcite-shell>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

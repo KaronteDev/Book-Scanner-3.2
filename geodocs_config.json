@@ -1,0 +1,8 @@
+{
+  "api_base_url": "https://api.geodocs.local",
+  "verify_tls": true,
+  "timeout_sec": 20,
+  "auth": "jwt",
+  "jwt_token": "REEMPLAZAR_CON_TU_JWT",
+  "iiif_image_base_url": "https://iiif.geodocs.local/iiif/"
+}

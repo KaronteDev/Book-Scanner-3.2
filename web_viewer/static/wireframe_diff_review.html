@@ -1,0 +1,49 @@
+
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Wireframe · Revisión de cambios</title>
+<style>
+ body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0}
+ header{display:flex;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #ddd;position:sticky;top:0;background:#fff}
+ header .btn{padding:6px 10px;border:1px solid #ccc;background:#f7f7f7;border-radius:6px;cursor:pointer}
+ .layout{display:grid;grid-template-columns:1fr 1fr 1fr 280px; height:calc(100vh - 52px)}
+ .col{border-right:1px solid #eee; padding:8px; overflow:auto}
+ .col h3{margin:0 0 6px 0; font-size:14px}
+ .token{padding:0 2px;border-radius:4px}
+ .ins{background:#e6ffed;border:1px solid #b7f5c7}
+ .del{text-decoration:line-through;background:#ffecec;border:1px solid #ffb3b3}
+ .sub{background:#fff4cc;border:1px solid #ffd24d}
+ .side{padding:8px; overflow:auto}
+ .badge{display:inline-block;padding:2px 6px;border-radius:999px;background:#eee;margin-right:6px}
+ .footer{padding:8px;border-top:1px solid #eee}
+</style>
+</head>
+<body>
+<header>
+  <button class="btn">⟲ Anterior</button>
+  <button class="btn">⟳ Siguiente</button>
+  <button class="btn">✓ Aceptar visibles</button>
+  <button class="btn">✗ Rechazar visibles</button>
+  <button class="btn">↺ Revertir a OCR original</button>
+  <span style="margin-left:auto" class="badge">Cambios: 128</span>
+  <span class="badge">Usuario: revisor@geodocs</span>
+</header>
+<div class="layout">
+  <div class="col" id="colA"><h3>OCR Original</h3><p>Lorem <span class="token del">ipsum</span> dolor sit <span class="token sub">amet</span>…</p></div>
+  <div class="col" id="colB"><h3>OCR Corregido</h3><p>Lorem dolor sit <span class="token sub">ámet</span>…</p></div>
+  <div class="col" id="colC"><h3>Estilizado</h3><p>Lorem dolor sit <span class="token ins">esto es</span>…</p></div>
+  <aside class="side">
+    <h3>Panel de cambios</h3>
+    <ol>
+      <li><strong>p.12</strong> “ibid.” → “ibídem” <em>(sugerido por estilo)</em></li>
+      <li><strong>p.12</strong> “cf.” <em>(mantener por estilo)</em></li>
+      <li><strong>p.13</strong> “s. l.” → “sin lugar”</li>
+    </ol>
+    <div class="footer">
+      <button class="btn" style="width:100%">Exportar acta (CSV/JSON)</button>
+    </div>
+  </aside>
+</div>
+</body></html>

@@ -1,0 +1,41 @@
+{
+  "endpoints": {
+    "push_archives": "/api/archivos",
+    "pull_archives": "/api/archivos",
+    "push_document": "/api/documentos",
+    "pull_documents": "/api/documentos"
+  },
+  "field_map": {
+    "document": {
+      "id": "id",
+      "project_id": "project_id",
+      "title": "title",
+      "signatura": "signatura",
+      "archivo_id": "archivo_id",
+      "fondo_id": "fondo_id",
+      "tema": "tema",
+      "etiquetas": "etiquetas",
+      "tipo": "tipo",
+      "autor": "autor",
+      "fecha_text": "fecha_text",
+      "lugar": "lugar",
+      "idioma": "idioma",
+      "derechos": "derechos",
+      "referencia_bibliografica": "referencia_bibliografica",
+      "resumen": "resumen",
+      "notas_internas": "notas_internas",
+      "remote_id": "remote_id"
+    },
+    "page": {
+      "seq": "seq",
+      "src_path": "src_path",
+      "processed_path": "processed_path",
+      "ocr_txt_path": "ocr_txt_path",
+      "ocr_pdf_path": "ocr_pdf_path",
+      "created_at": "created_at",
+      "remote_id": "remote_id",
+      "remote_url": "remote_url",
+      "ocr_url": "ocr_url"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+# Abreviaturas académicas (ES) — Tabla tipo
+
+| Abreviatura | Significado |
+|---|---|
+| et al. | y otros; y otras |
+| ibid. | en el mismo lugar (misma obra y página) |
+| ibíd. | en el mismo lugar (misma obra y página) |
+| op. cit. | en la obra citada |
+| loc. cit. | en el lugar citado |
+| cf. | confróntese; compárese |
+| vid. | véase |
+| supra | arriba; anteriormente |
+| infra | abajo; más adelante |
+| passim | de manera dispersa; por varias partes |
+| e.g. | por ejemplo |
+| i.e. | esto es; es decir |
+| etc. | etcétera |
+| s.v. | bajo la voz (en diccionarios) |
+| ca. | circa; aproximadamente |
+| vol. | volumen |
+| t. | tomo |
+| n.º | número |
+| n. | nota; número |
+| ap. | apéndice |
+| cap. | capítulo |
+| pp. | páginas |
+| p. | página |
+| fig. | figura |
+| pl. | lámina; placa |
+| ed. | editor; edición |
+| trad. | traductor; traducción |
+| comp. | compilador; compilación |
+| dir. | director; dirección |
+| coord. | coordinador; coordinación |
+| pról. | prólogo |
+| s. f. | sin fecha |
+| s. l. | sin lugar |
+| s. n. | sin nombre/editor |
+| N. B. | nota bene; nótese bien |
+| sic | así, literalmente |
+| anno | año |
+| apud | citado en; en |
+| ff. | y las siguientes (páginas) |

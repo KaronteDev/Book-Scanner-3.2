@@ -1,0 +1,8 @@
+{
+  "api_base_url": "http://localhost:8000",
+  "auth": "jwt",
+  "jwt_token": "JWT_TOKEN_LOCAL",
+  "verify_tls": false,
+  "timeout_sec": 20,
+  "environment": "development"
+}

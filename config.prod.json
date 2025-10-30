@@ -1,0 +1,8 @@
+{
+  "api_base_url": "https://api.geodocs.local",
+  "auth": "jwt",
+  "jwt_token": "JWT_TOKEN_PRODUCCION",
+  "verify_tls": true,
+  "timeout_sec": 30,
+  "environment": "production"
+}

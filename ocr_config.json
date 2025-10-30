@@ -1,0 +1,7 @@
+{
+  "default_lang": "spa+eng",
+  "psm": 3,
+  "oem": 3,
+  "export_text": true,
+  "save_txt_per_page": true
+}

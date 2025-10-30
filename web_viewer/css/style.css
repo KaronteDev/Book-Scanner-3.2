@@ -1,0 +1,35 @@
+html, body, .layout { height: 100%; margin: 0; }
+.layout { display: grid; grid-template-columns: 360px 1fr; }
+.sidebar { padding: 12px; overflow: auto; border-right: 1px solid #e0e0e0; }
+#map { width: 100%; height: 100vh; }
+.anno { padding: 8px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 8px; background: #fff; }
+.bar { margin-top: 12px; }
+.search{padding:12px;border-bottom:1px solid #e0e0e0;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.search h4{grid-column:1/-1;margin:0 0 6px 0}
+.search label{display:flex;flex-direction:column;font-size:12px}
+
+.prosopo{padding:12px;border-bottom:1px solid #e0e0e0;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.prosopo h4{grid-column:1/-1;margin:0 0 6px 0}
+#listPersons,#listPlaces{margin:6px 0;padding-left:18px}
+
+.graph{padding:12px;border-bottom:1px solid #e0e0e0}
+.graph h4{margin:0 0 6px 0}
+
+.ocr{padding:12px;border-bottom:1px solid #e0e0e0}
+.ocr h4{margin:0 0 6px 0}
+
+
+.compare{padding:12px;border-bottom:1px solid #e0e0e0}
+.compare .toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.compare .split{display:grid;grid-template-columns:1fr 1fr; gap:10px; height:320px}
+.compare .pane{border:1px solid #ddd;border-radius:6px; overflow:auto; padding:8px; background:#fff}
+.compare img{max-width:100%}
+.revbar{margin-top:8px}
+.revbar ul{display:inline-flex; list-style:none; gap:8px; padding:0; margin:0}
+.revbar li{background:#f3f3f3; border:1px solid #e1e1e1; padding:2px 6px; border-radius:4px; font-size:12px}
+.mark-add{background:#e6ffe6}
+.mark-del{text-decoration:line-through; background:#ffecec}
+
+.workflow,.quality{padding:12px;border-bottom:1px solid #e0e0e0}
+
+.high-contrast{filter:contrast(1.15) brightness(0.95)}

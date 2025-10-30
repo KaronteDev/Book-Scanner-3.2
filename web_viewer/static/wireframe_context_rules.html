@@ -1,0 +1,54 @@
+
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Wireframe · Reglas contextuales</title>
+<style>
+ body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0}
+ header{padding:10px;border-bottom:1px solid #ddd}
+ main{display:grid;grid-template-columns:360px 1fr;height:calc(100vh - 52px)}
+ .left{border-right:1px solid #eee;padding:10px;overflow:auto}
+ .right{padding:10px;overflow:auto}
+ .card{border:1px solid #ddd;border-radius:8px;padding:10px;margin-bottom:10px}
+ .k{display:inline-block;background:#f5f5f5;border:1px solid #ddd;border-radius:6px;padding:4px 8px;margin:2px}
+ pre{background:#f7f7f7;border:1px solid #eee;padding:8px;border-radius:8px}
+</style>
+</head>
+<body>
+<header>
+  <strong>Reglas contextuales por plantilla</strong>
+  <span style="margin-left:12px">Plantilla: <select><option>Chicago 17 (ES)</option></select></span>
+  <button style="margin-left:12px">Guardar</button>
+</header>
+<main>
+  <div class="left">
+    <div class="card">
+      <h4>Zonas</h4>
+      <label><input type="checkbox" checked/> Notas al pie (<code>footnote</code>)</label><br/>
+      <label><input type="checkbox" checked/> Citas (<code>quote</code>)</label><br/>
+      <label><input type="checkbox"/> Leyendas (<code>caption</code>)</label><br/>
+      <label><input type="checkbox"/> Bibliografía (<code>bibliography</code>)</label>
+    </div>
+    <div class="card">
+      <h4>Política</h4>
+      <div>Regla: <span class="k">zone=footnote</span> → <span class="k">keep_as_is: [“etc.”, “s. l.”, “s. f.”]</span></div>
+      <div>Regla: <span class="k">zone=quote</span> → <span class="k">expand_first_occurrence=false</span></div>
+      <div style="margin-top:8px"><button>+ Añadir regla</button></div>
+    </div>
+  </div>
+  <div class="right">
+    <h4>Prueba en esta página</h4>
+    <div style="display:flex;gap:12px">
+      <div style="flex:1">
+        <h5>Entrada (OCR corregido)</h5>
+        <pre>Lorem ipsum cf. <abbr>ibid.</abbr> — nota 1 (zona: footnote)</pre>
+      </div>
+      <div style="flex:1">
+        <h5>Resultado esperado</h5>
+        <pre>Lorem ipsum cf. ibid. — nota 1</pre>
+      </div>
+    </div>
+  </div>
+</main>
+</body></html>
