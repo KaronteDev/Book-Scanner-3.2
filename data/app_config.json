@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "GeoDocs Scanner",
-    "version": "32.3 PLUS",
+    "version": "0.3 Beta",
     "debug": false,
     "log_level": "INFO"
   },
@@ -9,7 +9,8 @@
     "data_dir": "data",
     "projects_dir": "proyectos",
     "temp_dir": "temp",
-    "exports_dir": "exports"
+    "exports_dir": "exports",
+    "root_dir": "M:\\Trabajo Privado\\FAT\\Book Scanner 3.2"
   },
   "camera": {
     "default_resolution": [
@@ -59,13 +60,12 @@
     "validate_output": true
   },
   "ui": {
-    "theme": "superhero",
+    "theme": "flatly",
     "font_family": "Open Sans",
     "font_size": 10,
     "show_tooltips": true,
     "confirm_actions": true,
     "window_geometry": {
-      "main": "600x550+988+290",
       "scanner": "1988x930+694+34"
     }
   },

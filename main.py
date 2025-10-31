@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-main.py — GeoDocs Scanner v32.3 PLUS
+main.py — GeoDocs Scanner v0.3 Beta
 Punto de entrada principal con selector de módulos
 """
 import os
@@ -31,7 +31,7 @@ except Exception:
     open_settings_dialog = None
 
 APP_NAME = "GeoDocs Scanner"
-APP_VERSION = "v32.3 PLUS"
+APP_VERSION = "v0.3 Beta"
 LOCK_SOCKET = None  # Variable global para mantener el socket activo
 
 

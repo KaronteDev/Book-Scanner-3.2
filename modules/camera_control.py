@@ -9,7 +9,12 @@ class AutoExposureController:
         self.camera_index=camera_index; self.cap=None
     def start(self):
         if cv2 is None: return False, "OpenCV no disponible"
-        self.cap=cv2.VideoCapture(self.camera_index)
+        # Use CAP_MSMF backend on Windows to avoid DSHOW warnings
+        try:
+            self.cap=cv2.VideoCapture(self.camera_index, cv2.CAP_MSMF)
+        except Exception:
+            # Fallback to default backend
+            self.cap=cv2.VideoCapture(self.camera_index)
         if not self.cap or not self.cap.isOpened(): return False, "No se pudo abrir la cámara"
         try: self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
         except Exception: pass

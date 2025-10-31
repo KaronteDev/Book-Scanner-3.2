@@ -843,7 +843,7 @@ class CameraScanner:
         
         # Test cameras
         for i in range(max_index):
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW) if hasattr(cv2, 'CAP_DSHOW') else cv2.VideoCapture(i)
+            cap = cv2.VideoCapture(i, cv2.CAP_MSMF) if hasattr(cv2, 'CAP_MSMF') else cv2.VideoCapture(i)
             if cap.isOpened():
                 try:
                     # Test resolutions
@@ -913,7 +913,7 @@ class CameraScanner:
         idx = self.camera_map[sel]
         max_w, max_h = self.camera_resolutions.get(sel, (1920, 1080))
         
-        self.cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) if hasattr(cv2, 'CAP_DSHOW') else cv2.VideoCapture(idx)
+        self.cap = cv2.VideoCapture(idx, cv2.CAP_MSMF) if hasattr(cv2, 'CAP_MSMF') else cv2.VideoCapture(idx)
         
         if not self.cap.isOpened():
             if Messagebox:
