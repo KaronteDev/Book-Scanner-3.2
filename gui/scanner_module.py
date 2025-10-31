@@ -836,15 +836,26 @@ class CameraScanner:
                 )
                 if result.returncode == 0:
                     names = [n.strip() for n in result.stdout.strip().split('\n') if n.strip()]
+                    # Limit max_index to actual number of cameras detected + 1
+                    if names:
+                        max_index = min(max_index, len(names) + 1)
                     for idx, name in enumerate(names[:max_index]):
                         camera_names[idx] = name
             except Exception:
                 pass
         
-        # Test cameras
+        # Test cameras with early exit if consecutive failures
+        consecutive_failures = 0
+        max_consecutive_failures = 2  # Stop after 2 consecutive failed attempts
+        
         for i in range(max_index):
-            cap = cv2.VideoCapture(i, cv2.CAP_MSMF) if hasattr(cv2, 'CAP_MSMF') else cv2.VideoCapture(i)
+            # Try default backend first (auto-selection)
+            cap = cv2.VideoCapture(i)
+            if not cap.isOpened() and hasattr(cv2, 'CAP_DSHOW'):
+                # Fallback to DSHOW if default fails
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
             if cap.isOpened():
+                consecutive_failures = 0  # Reset counter on success
                 try:
                     # Test resolutions
                     max_w, max_h = 640, 480
@@ -868,7 +879,18 @@ class CameraScanner:
                 except Exception:
                     name = camera_names.get(i, f"Cámara {i}")
                     found.append((i, name, 640, 480))
-            cap.release()
+                finally:
+                    cap.release()
+            else:
+                # Camera not opened, increment failure counter
+                consecutive_failures += 1
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                # Early exit if too many consecutive failures
+                if consecutive_failures >= max_consecutive_failures:
+                    break
         
         return found
     
@@ -913,7 +935,11 @@ class CameraScanner:
         idx = self.camera_map[sel]
         max_w, max_h = self.camera_resolutions.get(sel, (1920, 1080))
         
-        self.cap = cv2.VideoCapture(idx, cv2.CAP_MSMF) if hasattr(cv2, 'CAP_MSMF') else cv2.VideoCapture(idx)
+        # Try default backend first (auto-selection)
+        self.cap = cv2.VideoCapture(idx)
+        if not self.cap.isOpened() and hasattr(cv2, 'CAP_DSHOW'):
+            # Fallback to DSHOW if default fails
+            self.cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
         
         if not self.cap.isOpened():
             if Messagebox:

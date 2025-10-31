@@ -60,13 +60,15 @@
     "validate_output": true
   },
   "ui": {
-    "theme": "flatly",
+    "theme": "superhero",
     "font_family": "Open Sans",
     "font_size": 10,
     "show_tooltips": true,
     "confirm_actions": true,
     "window_geometry": {
-      "scanner": "1988x930+694+34"
+      "main": "650x600+1395+420",
+      "scanner": "1988x930+694+34",
+      "annotation": "1400x900+1020+270"
     }
   },
   "api": {

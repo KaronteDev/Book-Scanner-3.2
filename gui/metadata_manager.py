@@ -26,6 +26,185 @@ from utils import db_manager as db
 from utils.window_utils import center_to_parent
 
 
+class ToolTip:
+    """Tooltip personalizado para mostrar ayuda en campos"""
+    def __init__(self, widget, text: str, delay: int = 500):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.tip_window = None
+        self.after_id = None
+        
+        widget.bind('<Enter>', self.on_enter)
+        widget.bind('<Leave>', self.on_leave)
+    
+    def on_enter(self, event=None):
+        self.after_id = self.widget.after(self.delay, self.show_tip)
+    
+    def on_leave(self, event=None):
+        if self.after_id:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+        self.hide_tip()
+    
+    def show_tip(self):
+        if self.tip_window:
+            return
+        
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        
+        frame = ttk.Frame(tw, relief=tk.SOLID, borderwidth=1)
+        frame.pack()
+        
+        label = ttk.Label(
+            frame, 
+            text=self.text, 
+            justify=tk.LEFT,
+            background="#ffffdd" if not USE_BOOTSTRAP else None,
+            foreground="#000000" if not USE_BOOTSTRAP else None,
+            relief=tk.FLAT,
+            padding=(5, 3)
+        )
+        label.pack()
+    
+    def hide_tip(self):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
+def create_field_with_help(parent: ttk.Frame, row: int, label_text: str, help_text: str, 
+                           entry_var: tk.Variable = None, entry_width: int = 50,
+                           required: bool = False) -> tuple[ttk.Label, ttk.Entry, ttk.Label]:
+    """Crea un campo con etiqueta, entry y icono de ayuda con tooltip.
+    
+    Returns:
+        tuple: (label_widget, entry_widget, help_icon_widget)
+    """
+    # Frame contenedor para la fila
+    row_frame = ttk.Frame(parent)
+    row_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, padx=5, pady=4)
+    
+    # Etiqueta
+    label_final = label_text + (" *" if required else "")
+    lbl = ttk.Label(row_frame, text=label_final, width=20, anchor=tk.W)
+    lbl.pack(side=tk.LEFT, padx=(0, 5))
+    
+    # Entry
+    entry = ttk.Entry(row_frame, textvariable=entry_var, width=entry_width)
+    entry.pack(side=tk.LEFT, padx=(0, 5))
+    
+    # Icono de ayuda (sin color forzado para usar el del tema)
+    help_icon = ttk.Label(row_frame, text="ℹ️", cursor="question_arrow")
+    help_icon.pack(side=tk.LEFT)
+    
+    # Tooltip
+    ToolTip(help_icon, help_text)
+    
+    return lbl, entry, help_icon
+
+
+# Diccionario de ayudas por campo (basado en estándares ISAD(G), Dublin Core, etc.)
+FIELD_HELP = {
+    # Archivos
+    'archivo_nombre': 'Nombre oficial completo de la institución o archivo. Según ISAD(G) 3.1.2.',
+    'archivo_siglas': 'Siglas o acrónimo oficial del archivo (ej: AHN, AGI, BNE). Max 6 caracteres.',
+    'archivo_codigo': 'Código único de identificación del repositorio según estándares nacionales.',
+    'archivo_tipo': 'Tipo de institución: archivo, biblioteca, museo, centro de documentación.',
+    'archivo_direccion': 'Dirección postal completa de la sede principal.',
+    'archivo_ciudad': 'Ciudad o localidad donde se ubica el archivo.',
+    'archivo_provincia': 'Provincia o región administrativa.',
+    'archivo_pais': 'País sede del archivo. Por defecto: España.',
+    'archivo_contacto': 'Persona responsable o cargo de contacto principal.',
+    'archivo_email': 'Correo electrónico oficial de contacto.',
+    'archivo_telefono': 'Teléfono principal de contacto con prefijo internacional.',
+    'archivo_url': 'URL del sitio web oficial del archivo.',
+    'archivo_horario': 'Horario de atención al público (ej: L-V 9:00-14:00).',
+    'archivo_acceso': 'Condiciones y restricciones de acceso a los fondos.',
+    'archivo_coordenadas': 'Coordenadas geográficas (lat, lon) para geolocalización.',
+    'archivo_notas': 'Información adicional o notas sobre el archivo.',
+    
+    # Fondos
+    'fondo_nombre': 'Título o nombre del fondo documental según ISAD(G) 3.1.2.',
+    'fondo_codigo': 'Código de referencia del fondo según ISAD(G) 3.1.1 (ej: ES.28079.AHN/1.1).',
+    'fondo_titulo': 'Título formal del fondo documental según ISAD(G) 3.1.2.',
+    'fondo_nivel': 'Nivel de descripción: fonds, series, file, item según ISAD(G) 3.1.4.',
+    'fondo_descripcion': 'Descripción general del contenido y contexto del fondo.',
+    'fondo_archivo': 'Archivo o institución que custodia este fondo.',
+    'fondo_fecha_inicio': 'Fecha inicial del periodo cubierto (YYYY, YYYY-MM-DD).',
+    'fondo_fecha_fin': 'Fecha final del periodo cubierto (YYYY, YYYY-MM-DD).',
+    'fondo_fecha_ini': 'Fecha inicial del periodo cubierto (YYYY, YYYY-MM-DD).',
+    'fondo_volumen': 'Extensión y soporte del fondo (ej: 150 cajas, 300 libros).',
+    'fondo_historia': 'Historia institucional o biográfica del productor según ISAD(G) 3.2.2.',
+    'fondo_archivistica': 'Historia archivística del fondo según ISAD(G) 3.2.3.',
+    'fondo_ingreso': 'Forma de ingreso al archivo según ISAD(G) 3.2.4.',
+    'fondo_alcance': 'Alcance y contenido según ISAD(G) 3.3.1.',
+    'fondo_valoracion': 'Criterios de valoración y selección según ISAD(G) 3.3.2.',
+    'fondo_organizacion': 'Sistema de organización según ISAD(G) 3.3.4.',
+    'fondo_acceso_cond': 'Condiciones de acceso según ISAD(G) 3.4.1.',
+    'fondo_reproduccion': 'Condiciones de reproducción según ISAD(G) 3.4.2.',
+    'fondo_lengua': 'Lengua/escritura de los documentos según ISAD(G) 3.4.3 (ISO 639-2).',
+    'fondo_instrumentos': 'Instrumentos de descripción disponibles según ISAD(G) 3.4.5.',
+    
+    # Etiquetas
+    'etiqueta_nombre': 'Término o descriptor controlado para clasificación temática.',
+    'etiqueta_termino': 'Término o descriptor controlado para clasificación temática.',
+    'etiqueta_tipo': 'Tipo: topic (tema), person (persona), place (lugar), temporal (periodo).',
+    'etiqueta_vocabulario': 'Fuente del vocabulario controlado (LCSH, AAT, UNESCO, etc.).',
+    'etiqueta_uri': 'URI del término en vocabularios externos (Wikidata, GeoNames, etc.).',
+    'etiqueta_descripcion': 'Nota de alcance o definición del término.',
+    
+    # Proyectos
+    'proyecto_codigo': 'Código único del proyecto de digitalización (generado automáticamente).',
+    'proyecto_titulo': 'Título Dublin Core del documento o unidad documental.',
+    'proyecto_titulo_alt': 'Título alternativo o variante según Dublin Core.',
+    'proyecto_codigo_ref': 'Código de referencia archivístico completo (ej: ES.28079.AHN/1.1/25).',
+    'proyecto_signatura': 'Signatura topográfica del documento original.',
+    'proyecto_nivel': 'Nivel de descripción: collection, file, item según ISAD(G).',
+    'proyecto_tipo_doc': 'Tipo de documento (carta, manuscrito, registro, etc.).',
+    'proyecto_tipo_mat': 'Tipo de material (papel, pergamino, textil, etc.).',
+    'proyecto_autor': 'Autor o creador principal del documento según Dublin Core.',
+    'proyecto_creador': 'Creador(es) del documento (puede ser distinto del autor).',
+    'proyecto_productor': 'Entidad productora del documento.',
+    'proyecto_tema': 'Materia o tema principal del documento.',
+    'proyecto_descripcion': 'Descripción libre del contenido.',
+    'proyecto_alcance': 'Alcance y contenido según ISAD(G) 3.3.1.',
+    'proyecto_resumen': 'Resumen ejecutivo del contenido.',
+    'proyecto_fecha_creacion': 'Fecha de creación del documento original.',
+    'proyecto_fecha_ini': 'Fecha inicial del periodo cubierto.',
+    'proyecto_fecha_fin': 'Fecha final del periodo cubierto.',
+    'proyecto_lugar': 'Lugar de creación o producción del documento.',
+    'proyecto_lengua': 'Lengua del documento según ISO 639-2 (spa, cat, lat, etc.).',
+    'proyecto_cobertura_temp': 'Cobertura temporal del contenido.',
+    'proyecto_cobertura_geo': 'Cobertura geográfica del contenido.',
+    'proyecto_extension': 'Extensión física (número de páginas, folios, etc.).',
+    'proyecto_formato': 'Formato físico (libro, legajo, rollo, etc.).',
+    'proyecto_soporte': 'Soporte material (papel, pergamino, etc.).',
+    'proyecto_dimensiones': 'Dimensiones físicas en mm (alto x ancho x grosor).',
+    'proyecto_conservacion': 'Estado de conservación (bueno, regular, malo, restaurado).',
+    'proyecto_tratamiento': 'Tratamiento técnico aplicado (limpieza, restauración, etc.).',
+    'proyecto_derechos': 'Declaración de derechos de autor.',
+    'proyecto_licencia': 'Licencia de uso (In Copyright, CC-BY, Public Domain, etc.).',
+    'proyecto_titular': 'Titular de los derechos de autor.',
+    'proyecto_acceso': 'Condiciones de acceso al documento digital.',
+    'proyecto_uso': 'Condiciones de uso y reproducción.',
+    'proyecto_fondo': 'Fondo documental al que pertenece.',
+    'proyecto_responsable': 'Responsable del proyecto de digitalización.',
+    'proyecto_fecha_digit': 'Fecha de la digitalización.',
+    'proyecto_equipamiento': 'Equipamiento utilizado para la digitalización.',
+    'proyecto_resolucion': 'Resolución de captura en DPI (300, 400, 600).',
+    'proyecto_espacio_color': 'Espacio de color (RGB, CMYK, Grayscale).',
+    'proyecto_formato_archivo': 'Formato de archivo digital (TIFF, JPEG2000, PNG).',
+    'proyecto_checksum': 'Suma de verificación para integridad (MD5, SHA256).',
+    'proyecto_software': 'Software utilizado en el proceso.',
+}
+
+
 class MetadataManager(tk.Toplevel):
     def __init__(self, parent: tk.Misc, focus_tab: str = "proyectos", edit_project_id: Optional[int] = None):
         super().__init__(parent)
@@ -349,9 +528,11 @@ class EditorProyecto(tk.Toplevel):
         self.geometry("800x580")
         apply_titlebar_theme(self)
         
+        # Ocultar ventana temporalmente para evitar parpadeo
+        self.withdraw()
+        
         # Modal and center
         self.transient(parent)
-        self.grab_set()
         center_to_parent(self, parent)
         self.base_path = base_path
         self.project_id = project_id
@@ -443,6 +624,10 @@ class EditorProyecto(tk.Toplevel):
         self._load_archivos_fondos()
         if project_id:
             self._load_project(project_id)
+        
+        # Mostrar ventana después de construir todo
+        self.deiconify()
+        self.grab_set()
 
     def _load_tags(self):
         """Load all available tags into listbox"""
@@ -640,61 +825,199 @@ class EditorProyecto(tk.Toplevel):
 class EditorArchivo(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, archivo_id: Optional[int], on_saved=None):
         super().__init__(parent)
-        self.title("Archivo (institución)")
-        self.geometry("680x400")
+        self.title("Archivo (Institución) · Editor")
+        self.geometry("750x930")
         apply_titlebar_theme(self)
+        
+        # Ocultar ventana temporalmente para evitar parpadeo
+        self.withdraw()
         
         # Modal and center
         self.transient(parent)
-        self.grab_set()
         center_to_parent(self, parent)
         self.base_path = base_path
         self.archivo_id = archivo_id
         self.on_saved = on_saved
 
-        frm = ttk.Frame(self, padding=10); frm.pack(fill=tk.BOTH, expand=True)
-        self.v_nombre = tk.StringVar(); self.v_siglas = tk.StringVar(); self.v_dir = tk.StringVar(); self.v_cont = tk.StringVar(); self.v_email = tk.StringVar(); self.v_tel = tk.StringVar(); self.v_url = tk.StringVar()
-        labels = [
-            ("Nombre:", self.v_nombre),
-            ("Siglas:", self.v_siglas),
-            ("Dirección:", self.v_dir),
-            ("Contacto:", self.v_cont),
-            ("Email:", self.v_email),
-            ("Teléfono:", self.v_tel),
-            ("URL:", self.v_url),
-        ]
-        for i,(txt,var) in enumerate(labels):
-            ttk.Label(frm, text=txt).grid(row=i, column=0, sticky='e', padx=6, pady=4)
-            ttk.Entry(frm, textvariable=var, width=52).grid(row=i, column=1, sticky='w', padx=6, pady=4)
-        btns = ttk.Frame(frm); btns.grid(row=len(labels), column=0, columnspan=2, sticky='e', pady=(14,4))
+        # Frame principal sin scroll
+        frm = ttk.Frame(self, padding=15)
+        frm.pack(fill=tk.BOTH, expand=True)
+        
+        # Variables
+        self.v_nombre = tk.StringVar()
+        self.v_siglas = tk.StringVar()
+        self.v_codigo = tk.StringVar()
+        self.v_tipo = tk.StringVar(value='archivo')
+        self.v_dir = tk.StringVar()
+        self.v_ciudad = tk.StringVar()
+        self.v_provincia = tk.StringVar()
+        self.v_pais = tk.StringVar(value='España')
+        self.v_cont = tk.StringVar()
+        self.v_email = tk.StringVar()
+        self.v_tel = tk.StringVar()
+        self.v_url = tk.StringVar()
+        self.v_horario = tk.StringVar()
+        self.v_acceso = tk.StringVar()
+        self.v_notas = tk.StringVar()
+        
+        # Título
+        ttk.Label(frm, text="Información del Archivo o Institución", 
+                 font=("", 12, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,15))
+        
+        row = 1
+        
+        # Usar la función helper para crear campos con ayuda
+        create_field_with_help(frm, row, "Nombre oficial *", FIELD_HELP['archivo_nombre'], 
+                              self.v_nombre, entry_width=50, required=True)
+        row += 1
+        
+        create_field_with_help(frm, row, "Siglas", FIELD_HELP['archivo_siglas'], 
+                              self.v_siglas, entry_width=15)
+        row += 1
+        
+        create_field_with_help(frm, row, "Código ID", FIELD_HELP['archivo_codigo'], 
+                              self.v_codigo, entry_width=25)
+        row += 1
+        
+        # Tipo (combobox)
+        row_frame = ttk.Frame(frm)
+        row_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, padx=5, pady=4)
+        ttk.Label(row_frame, text="Tipo institución", width=20, anchor=tk.W).pack(side=tk.LEFT, padx=(0, 5))
+        tipo_combo = ttk.Combobox(row_frame, textvariable=self.v_tipo, width=28, 
+                                 values=['archivo', 'biblioteca', 'museo', 'centro documentación'])
+        tipo_combo.pack(side=tk.LEFT, padx=(0, 5))
+        help_icon = ttk.Label(row_frame, text="ℹ️", cursor="question_arrow")
+        help_icon.pack(side=tk.LEFT)
+        ToolTip(help_icon, FIELD_HELP['archivo_tipo'])
+        row += 1
+        
+        ttk.Separator(frm, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=3, 
+                                                       sticky="ew", pady=10)
+        row += 1
+        
+        ttk.Label(frm, text="📍 Ubicación", font=("", 10, "bold")).grid(row=row, column=0, 
+                                                                          columnspan=3, sticky=tk.W, pady=(0,5))
+        row += 1
+        
+        create_field_with_help(frm, row, "Dirección", FIELD_HELP['archivo_direccion'], 
+                              self.v_dir, entry_width=50)
+        row += 1
+        
+        create_field_with_help(frm, row, "Ciudad", FIELD_HELP['archivo_ciudad'], 
+                              self.v_ciudad, entry_width=30)
+        row += 1
+        
+        create_field_with_help(frm, row, "Provincia", FIELD_HELP['archivo_provincia'], 
+                              self.v_provincia, entry_width=30)
+        row += 1
+        
+        create_field_with_help(frm, row, "País", FIELD_HELP['archivo_pais'], 
+                              self.v_pais, entry_width=30)
+        row += 1
+        
+        ttk.Separator(frm, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=3, 
+                                                       sticky="ew", pady=10)
+        row += 1
+        
+        ttk.Label(frm, text="📞 Contacto", font=("", 10, "bold")).grid(row=row, column=0, 
+                                                                         columnspan=3, sticky=tk.W, pady=(0,5))
+        row += 1
+        
+        create_field_with_help(frm, row, "Responsable", FIELD_HELP['archivo_contacto'], 
+                              self.v_cont, entry_width=40)
+        row += 1
+        
+        create_field_with_help(frm, row, "Email", FIELD_HELP['archivo_email'], 
+                              self.v_email, entry_width=40)
+        row += 1
+        
+        create_field_with_help(frm, row, "Teléfono", FIELD_HELP['archivo_telefono'], 
+                              self.v_tel, entry_width=25)
+        row += 1
+        
+        create_field_with_help(frm, row, "URL", FIELD_HELP['archivo_url'], 
+                              self.v_url, entry_width=50)
+        row += 1
+        
+        create_field_with_help(frm, row, "Horario", FIELD_HELP['archivo_horario'], 
+                              self.v_horario, entry_width=40)
+        row += 1
+        
+        ttk.Separator(frm, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=3, 
+                                                       sticky="ew", pady=10)
+        row += 1
+        
+        create_field_with_help(frm, row, "Condiciones acceso", FIELD_HELP['archivo_acceso'], 
+                              self.v_acceso, entry_width=50)
+        row += 1
+        
+        create_field_with_help(frm, row, "Notas", FIELD_HELP['archivo_notas'], 
+                              self.v_notas, entry_width=50)
+        row += 1
+        
+        # Botonera
+        btns = ttk.Frame(frm)
+        btns.grid(row=row, column=0, columnspan=3, sticky='e', pady=(20,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
 
         if archivo_id:
             self._load()
+        
+        # Mostrar ventana después de construir todo
+        self.deiconify()
+        self.grab_set()
 
     def _load(self):
         rows = db.list_archivos(self.base_path)
         row = next((r for r in rows if r.get('id') == self.archivo_id), None)
         if not row:
             return
-        self.v_nombre.set(row.get('nombre') or '')
+        self.v_nombre.set(row.get('nombre') or row.get('nombre_oficial') or '')
         self.v_siglas.set(row.get('siglas') or '')
-        self.v_dir.set(row.get('direccion') or '')
-        self.v_cont.set(row.get('contacto') or '')
+        self.v_codigo.set(row.get('codigo_identificacion') or '')
+        self.v_tipo.set(row.get('tipo_institucion') or 'archivo')
+        self.v_dir.set(row.get('direccion') or row.get('direccion_completa') or '')
+        self.v_ciudad.set(row.get('ciudad') or '')
+        self.v_provincia.set(row.get('provincia') or '')
+        self.v_pais.set(row.get('pais') or 'España')
+        self.v_cont.set(row.get('contacto') or row.get('contacto_responsable') or '')
         self.v_email.set(row.get('email') or '')
         self.v_tel.set(row.get('telefono') or '')
         self.v_url.set(row.get('url') or '')
+        self.v_horario.set(row.get('horario_atencion') or '')
+        self.v_acceso.set(row.get('condiciones_acceso') or '')
+        self.v_notas.set(row.get('notas') or '')
 
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Archivo", "Nombre requerido", parent=self)
+            messagebox.showwarning("Archivo", "Nombre oficial es obligatorio", parent=self)
             return
+        
+        data = {
+            'nombre': nombre,
+            'siglas': self.v_siglas.get().strip() or None,
+            'codigo_identificacion': self.v_codigo.get().strip() or None,
+            'tipo_institucion': self.v_tipo.get().strip() or 'archivo',
+            'direccion': self.v_dir.get().strip() or None,
+            'ciudad': self.v_ciudad.get().strip() or None,
+            'provincia': self.v_provincia.get().strip() or None,
+            'pais': self.v_pais.get().strip() or 'España',
+            'contacto': self.v_cont.get().strip() or None,
+            'email': self.v_email.get().strip() or None,
+            'telefono': self.v_tel.get().strip() or None,
+            'url': self.v_url.get().strip() or None,
+            'horario_atencion': self.v_horario.get().strip() or None,
+            'condiciones_acceso': self.v_acceso.get().strip() or None,
+            'notas': self.v_notas.get().strip() or None,
+        }
+        
         if self.archivo_id:
-            db.update_archivo(self.base_path, self.archivo_id, nombre=nombre, siglas=self.v_siglas.get().strip(), direccion=self.v_dir.get().strip(), contacto=self.v_cont.get().strip(), email=self.v_email.get().strip(), telefono=self.v_tel.get().strip(), url=self.v_url.get().strip())
+            db.update_archivo(self.base_path, self.archivo_id, **data)
         else:
-            db.create_archivo(self.base_path, nombre=nombre, siglas=self.v_siglas.get().strip() or None, direccion=self.v_dir.get().strip() or None, contacto=self.v_cont.get().strip() or None, email=self.v_email.get().strip() or None, telefono=self.v_tel.get().strip() or None, url=self.v_url.get().strip() or None)
+            db.create_archivo(self.base_path, **data)
+        
         if self.on_saved:
             self.on_saved()
         self.destroy()
@@ -703,54 +1026,117 @@ class EditorArchivo(tk.Toplevel):
 class EditorFondo(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, fondo_id: Optional[int], on_saved=None):
         super().__init__(parent)
-        self.title("Fondo documental")
-        self.geometry("700x330")
+        self.title("Fondo Documental · Editor")
+        self.geometry("750x570")
         apply_titlebar_theme(self)
+        
+        # Ocultar ventana temporalmente para evitar parpadeo
+        self.withdraw()
         
         # Modal and center
         self.transient(parent)
-        self.grab_set()
         center_to_parent(self, parent)
         self.base_path = base_path
         self.fondo_id = fondo_id
         self.on_saved = on_saved
 
-        frm = ttk.Frame(self, padding=10); frm.pack(fill=tk.BOTH, expand=True)
-        self.v_nombre = tk.StringVar(); self.v_desc = tk.StringVar(); self.v_desde = tk.StringVar(); self.v_hasta = tk.StringVar(); self.v_arch = tk.StringVar()
-        # Archivo combo
-        ttk.Label(frm, text="Archivo (institución):").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        self.cmb_arch = ttk.Combobox(frm, textvariable=self.v_arch, state='readonly', width=52)
-        self.cmb_arch.grid(row=0, column=1, sticky='w', padx=6, pady=4)
+        frm = ttk.Frame(self, padding=15); frm.pack(fill=tk.BOTH, expand=True)
+        
+        # Variables
+        self.v_nombre = tk.StringVar()
+        self.v_codigo = tk.StringVar()
+        self.v_desc = tk.StringVar()
+        self.v_desde = tk.StringVar()
+        self.v_hasta = tk.StringVar()
+        self.v_arch = tk.StringVar()
+        self.v_alcance = tk.StringVar()
+        self.v_organizacion = tk.StringVar()
+        
+        # Título
+        ttk.Label(frm, text="Información del Fondo Documental", 
+                 font=("", 12, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,15))
+        
+        row = 1
+        
+        # Archivo (institución) - con tooltip
+        row_frame = ttk.Frame(frm)
+        row_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, padx=5, pady=4)
+        ttk.Label(row_frame, text="Archivo (institución)", width=20, anchor=tk.W).pack(side=tk.LEFT, padx=(0, 5))
+        self.cmb_arch = ttk.Combobox(row_frame, textvariable=self.v_arch, state='readonly', width=42)
+        self.cmb_arch.pack(side=tk.LEFT, padx=(0, 5))
         self._arch_rows = db.list_archivos(self.base_path)
         self.cmb_arch['values'] = [f"{r['id']} · {r['nombre']} ({(r.get('siglas') or '').upper()})" for r in self._arch_rows]
         if self._arch_rows:
             self.cmb_arch.current(0)
-        # Resto campos
-        labels = [
-            ("Nombre:", self.v_nombre),
-            ("Descripción:", self.v_desc),
-            ("Periodo desde:", self.v_desde),
-            ("Periodo hasta:", self.v_hasta),
-        ]
-        base = 1
-        for i,(txt,var) in enumerate(labels):
-            ttk.Label(frm, text=txt).grid(row=base+i, column=0, sticky='e', padx=6, pady=4)
-            ttk.Entry(frm, textvariable=var, width=52).grid(row=base+i, column=1, sticky='w', padx=6, pady=4)
-        btns = ttk.Frame(frm); btns.grid(row=base+len(labels), column=0, columnspan=2, sticky='e', pady=(14,4))
+        help_icon = ttk.Label(row_frame, text="ℹ️", cursor="question_arrow")
+        help_icon.pack(side=tk.LEFT)
+        ToolTip(help_icon, FIELD_HELP['fondo_archivo'])
+        row += 1
+        
+        create_field_with_help(frm, row, "Título/Nombre *", FIELD_HELP['fondo_nombre'], 
+                              self.v_nombre, entry_width=50, required=True)
+        row += 1
+        
+        create_field_with_help(frm, row, "Código referencia", FIELD_HELP['fondo_codigo'], 
+                              self.v_codigo, entry_width=30)
+        row += 1
+        
+        create_field_with_help(frm, row, "Descripción", FIELD_HELP['fondo_descripcion'], 
+                              self.v_desc, entry_width=50)
+        row += 1
+        
+        ttk.Separator(frm, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=3, 
+                                                       sticky="ew", pady=10)
+        row += 1
+        
+        ttk.Label(frm, text="📅 Fechas", font=("", 10, "bold")).grid(row=row, column=0, 
+                                                                       columnspan=3, sticky=tk.W, pady=(0,5))
+        row += 1
+        
+        create_field_with_help(frm, row, "Periodo desde", FIELD_HELP['fondo_fecha_inicio'], 
+                              self.v_desde, entry_width=20)
+        row += 1
+        
+        create_field_with_help(frm, row, "Periodo hasta", FIELD_HELP['fondo_fecha_fin'], 
+                              self.v_hasta, entry_width=20)
+        row += 1
+        
+        ttk.Separator(frm, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=3, 
+                                                       sticky="ew", pady=10)
+        row += 1
+        
+        create_field_with_help(frm, row, "Alcance y contenido", FIELD_HELP['fondo_alcance'], 
+                              self.v_alcance, entry_width=50)
+        row += 1
+        
+        create_field_with_help(frm, row, "Organización", FIELD_HELP['fondo_organizacion'], 
+                              self.v_organizacion, entry_width=50)
+        row += 1
+        
+        # Botonera
+        btns = ttk.Frame(frm)
+        btns.grid(row=row, column=0, columnspan=3, sticky='e', pady=(20,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
 
         if fondo_id:
             self._load()
+        
+        # Mostrar ventana después de construir todo
+        self.deiconify()
+        self.grab_set()
 
     def _load(self):
         row = next((r for r in db.list_fondos(self.base_path) if r.get('id') == self.fondo_id), None)
         if not row:
             return
-        self.v_nombre.set(row.get('nombre') or '')
+        self.v_nombre.set(row.get('nombre') or row.get('titulo') or '')
+        self.v_codigo.set(row.get('codigo_referencia') or '')
         self.v_desc.set(row.get('descripcion') or '')
-        self.v_desde.set(row.get('periodo_inicio') or '')
-        self.v_hasta.set(row.get('periodo_fin') or '')
+        self.v_desde.set(row.get('periodo_inicio') or row.get('fecha_inicial') or '')
+        self.v_hasta.set(row.get('periodo_fin') or row.get('fecha_final') or '')
+        self.v_alcance.set(row.get('alcance_contenido') or '')
+        self.v_organizacion.set(row.get('organizacion') or '')
         a_id = row.get('archivo_id')
         if a_id:
             for i, a in enumerate(self._arch_rows):
@@ -760,7 +1146,7 @@ class EditorFondo(tk.Toplevel):
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Fondo", "Nombre requerido", parent=self)
+            messagebox.showwarning("Fondo", "Título/Nombre es obligatorio", parent=self)
             return
         a_id = None
         if self.v_arch.get():
@@ -768,7 +1154,18 @@ class EditorFondo(tk.Toplevel):
                 a_id = int(self.v_arch.get().split('·',1)[0])
             except Exception:
                 a_id = None
-        data = dict(nombre=nombre, descripcion=self.v_desc.get().strip() or None, archivo_id=a_id, periodo_inicio=self.v_desde.get().strip() or None, periodo_fin=self.v_hasta.get().strip() or None)
+        
+        data = {
+            'nombre': nombre,
+            'codigo_referencia': self.v_codigo.get().strip() or None,
+            'descripcion': self.v_desc.get().strip() or None,
+            'archivo_id': a_id,
+            'periodo_inicio': self.v_desde.get().strip() or None,
+            'periodo_fin': self.v_hasta.get().strip() or None,
+            'alcance_contenido': self.v_alcance.get().strip() or None,
+            'organizacion': self.v_organizacion.get().strip() or None,
+        }
+        
         if self.fondo_id:
             db.update_fondo(self.base_path, self.fondo_id, **data)
         else:
@@ -781,47 +1178,102 @@ class EditorFondo(tk.Toplevel):
 class EditorEtiqueta(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, tag_id: Optional[int], on_saved=None):
         super().__init__(parent)
-        self.title("Etiqueta")
-        self.geometry("600x180")
+        self.title("Etiqueta/Descriptor · Editor")
+        self.geometry("650x350")
         apply_titlebar_theme(self)
+        
+        # Ocultar ventana temporalmente para evitar parpadeo
+        self.withdraw()
         
         # Modal and center
         self.transient(parent)
-        self.grab_set()
         center_to_parent(self, parent)
         self.base_path = base_path
         self.tag_id = tag_id
         self.on_saved = on_saved
 
-        frm = ttk.Frame(self, padding=10); frm.pack(fill=tk.BOTH, expand=True)
-        self.v_nombre = tk.StringVar(); self.v_desc = tk.StringVar()
-        ttk.Label(frm, text="Nombre:").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_nombre, width=46).grid(row=0, column=1, sticky='w', padx=6, pady=4)
-        ttk.Label(frm, text="Descripción:").grid(row=1, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_desc, width=46).grid(row=1, column=1, sticky='w', padx=6, pady=4)
-        btns = ttk.Frame(frm); btns.grid(row=2, column=0, columnspan=2, sticky='e', pady=(14,4))
+        frm = ttk.Frame(self, padding=15); frm.pack(fill=tk.BOTH, expand=True)
+        
+        # Variables
+        self.v_nombre = tk.StringVar()
+        self.v_tipo = tk.StringVar(value='topic')
+        self.v_desc = tk.StringVar()
+        self.v_vocabulario = tk.StringVar()
+        
+        # Título
+        ttk.Label(frm, text="Información de la Etiqueta/Descriptor", 
+                 font=("", 12, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,15))
+        
+        row = 1
+        
+        create_field_with_help(frm, row, "Término *", FIELD_HELP['etiqueta_nombre'], 
+                              self.v_nombre, entry_width=40, required=True)
+        row += 1
+        
+        # Tipo (combobox)
+        row_frame = ttk.Frame(frm)
+        row_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, padx=5, pady=4)
+        ttk.Label(row_frame, text="Tipo", width=20, anchor=tk.W).pack(side=tk.LEFT, padx=(0, 5))
+        tipo_combo = ttk.Combobox(row_frame, textvariable=self.v_tipo, width=28, 
+                                 values=['topic', 'geographic', 'temporal', 'genre', 'person', 'corporate'])
+        tipo_combo.pack(side=tk.LEFT, padx=(0, 5))
+        help_icon = ttk.Label(row_frame, text="ℹ️", cursor="question_arrow")
+        help_icon.pack(side=tk.LEFT)
+        ToolTip(help_icon, FIELD_HELP['etiqueta_tipo'])
+        row += 1
+        
+        create_field_with_help(frm, row, "Descripción", FIELD_HELP['etiqueta_descripcion'], 
+                              self.v_desc, entry_width=40)
+        row += 1
+        
+        create_field_with_help(frm, row, "Vocabulario fuente", FIELD_HELP['etiqueta_vocabulario'], 
+                              self.v_vocabulario, entry_width=35)
+        row += 1
+        
+        ttk.Label(frm, text="💡 Las etiquetas permiten clasificar y buscar proyectos", 
+                 font=("", 9, "italic"), foreground="gray").grid(row=row, column=0, 
+                                                                   columnspan=3, pady=(10,0))
+        row += 1
+        
+        # Botonera
+        btns = ttk.Frame(frm)
+        btns.grid(row=row, column=0, columnspan=3, sticky='e', pady=(20,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
 
         if tag_id:
             self._load()
+        
+        # Mostrar ventana después de construir todo
+        self.deiconify()
+        self.grab_set()
 
     def _load(self):
         row = next((r for r in db.list_etiquetas(self.base_path) if r.get('id') == self.tag_id), None)
         if not row:
             return
-        self.v_nombre.set(row.get('nombre') or '')
+        self.v_nombre.set(row.get('nombre') or row.get('termino') or '')
+        self.v_tipo.set(row.get('tipo_termino') or 'topic')
         self.v_desc.set(row.get('descripcion') or '')
+        self.v_vocabulario.set(row.get('vocabulario_fuente') or '')
 
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Etiqueta", "Nombre requerido", parent=self)
+            messagebox.showwarning("Etiqueta", "Término es obligatorio", parent=self)
             return
+        
+        data = {
+            'nombre': nombre,
+            'tipo_termino': self.v_tipo.get().strip() or 'topic',
+            'descripcion': self.v_desc.get().strip() or None,
+            'vocabulario_fuente': self.v_vocabulario.get().strip() or None,
+        }
+        
         if self.tag_id:
-            db.update_etiqueta(self.base_path, self.tag_id, nombre=nombre, descripcion=self.v_desc.get().strip() or None)
+            db.update_etiqueta(self.base_path, self.tag_id, **data)
         else:
-            db.create_etiqueta(self.base_path, nombre=nombre, descripcion=self.v_desc.get().strip() or None)
+            db.create_etiqueta(self.base_path, **data)
         if self.on_saved:
             self.on_saved()
         self.destroy()
@@ -831,47 +1283,62 @@ class QuickEditorArchivo(tk.Toplevel):
     """Compact archivo editor for quick creation from project editor"""
     def __init__(self, parent: tk.Misc, base_path: Path, on_saved=None):
         super().__init__(parent)
-        self.title("Crear Archivo")
-        self.geometry("570x260")
+        self.title("⚡ Nuevo Archivo")
+        self.geometry("600x300")
         apply_titlebar_theme(self)
         
+        # Ocultar ventana temporalmente para evitar parpadeo
+        self.withdraw()
+        
         # Center before making modal
+        self.transient(parent)
         center_to_parent(self, parent)
         self.base_path = base_path
         self.on_saved = on_saved
 
-        frm = ttk.Frame(self, padding=10); frm.pack(fill=tk.BOTH, expand=True)
+        frm = ttk.Frame(self, padding=15); frm.pack(fill=tk.BOTH, expand=True)
+        
         self.v_nombre = tk.StringVar()
         self.v_siglas = tk.StringVar()
+        self.v_ciudad = tk.StringVar()
         
-        ttk.Label(frm, text="Nombre:").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_nombre, width=46).grid(row=0, column=1, sticky='w', padx=6, pady=4)
-        ttk.Label(frm, text="Siglas:").grid(row=1, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_siglas, width=46).grid(row=1, column=1, sticky='w', padx=6, pady=4)
+        ttk.Label(frm, text="Crear Archivo (datos básicos)", 
+                 font=("", 11, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,12))
         
-        ttk.Label(frm, text="(Campos adicionales se pueden editar después)", font=('', 9, 'italic')).grid(row=2, column=0, columnspan=2, pady=(10,0))
+        create_field_with_help(frm, 1, "Nombre oficial *", FIELD_HELP['archivo_nombre'], 
+                              self.v_nombre, entry_width=40, required=True)
         
-        btns = ttk.Frame(frm); btns.grid(row=3, column=0, columnspan=2, sticky='e', pady=(20,4))
+        create_field_with_help(frm, 2, "Siglas", FIELD_HELP['archivo_siglas'], 
+                              self.v_siglas, entry_width=15)
+        
+        create_field_with_help(frm, 3, "Ciudad", FIELD_HELP['archivo_ciudad'], 
+                              self.v_ciudad, entry_width=30)
+        
+        ttk.Label(frm, text="💡 Podrás completar más campos después", 
+                 font=("", 9, "italic"), foreground="gray").grid(row=4, column=0, 
+                                                                   columnspan=3, pady=(10,0))
+        
+        btns = ttk.Frame(frm)
+        btns.grid(row=5, column=0, columnspan=3, sticky='e', pady=(20,0))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
-        ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btns, text="Crear", command=self._save).pack(side=tk.RIGHT, padx=6)
         
-        # Modal
-        self.transient(parent)
+        # Mostrar ventana después de construir todo
+        self.deiconify()
         self.grab_set()
         self.focus_set()
 
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Archivo", "Nombre requerido", parent=self)
+            messagebox.showwarning("Archivo", "Nombre oficial es obligatorio", parent=self)
             return
-        
-        siglas = self.v_siglas.get().strip()
         
         new_id = db.create_archivo(
             self.base_path, 
             nombre=nombre,
-            siglas=siglas if siglas else None
+            siglas=self.v_siglas.get().strip() or None,
+            ciudad=self.v_ciudad.get().strip() or None
         )
         
         if self.on_saved:
@@ -888,7 +1355,11 @@ class QuickEditorFondo(tk.Toplevel):
         self.geometry("680x220")
         apply_titlebar_theme(self)
         
+        # Ocultar ventana temporalmente para evitar parpadeo
+        self.withdraw()
+        
         # Center before making modal
+        self.transient(parent)
         center_to_parent(self, parent)
         self.base_path = base_path
         self.archivo_id = archivo_id
@@ -907,8 +1378,8 @@ class QuickEditorFondo(tk.Toplevel):
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
         
-        # Modal
-        self.transient(parent)
+        # Mostrar ventana después de construir todo
+        self.deiconify()
         self.grab_set()
         self.focus_set()
 
@@ -940,7 +1411,11 @@ class QuickEditorEtiqueta(tk.Toplevel):
         self.geometry("580x200")
         apply_titlebar_theme(self)
         
+        # Ocultar ventana temporalmente para evitar parpadeo
+        self.withdraw()
+        
         # Center before making modal
+        self.transient(parent)
         center_to_parent(self, parent)
         self.base_path = base_path
         self.on_saved = on_saved
@@ -961,12 +1436,13 @@ class QuickEditorEtiqueta(tk.Toplevel):
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
         
-        # Modal
-        self.transient(parent)
-        self.grab_set()
-        
         # Bind Enter key to save
         e_nombre.bind('<Return>', lambda e: self._save())
+        
+        # Mostrar ventana después de construir todo
+        self.deiconify()
+        self.grab_set()
+        e_nombre.focus_set()
 
     def _save(self):
         nombre = self.v_nombre.get().strip()

@@ -54,6 +54,7 @@ class ModuleSelectorApp:
     
     def __init__(self, root):
         self.root = root
+        self.root.withdraw()  # Ocultar durante construcción
         self.root.title(f"{APP_NAME} {APP_VERSION}")
         self.root.geometry("650x600")
         self.root.resizable(False, False)
@@ -64,9 +65,6 @@ class ModuleSelectorApp:
         # Apply title bar theme automatically from ttkbootstrap
         apply_titlebar_theme(self.root)
         
-        # Center window
-        self.center_window()
-        
         # Configure button font styles for bootstrap
         if USE_BOOTSTRAP:
             self.configure_button_styles()
@@ -76,6 +74,12 @@ class ModuleSelectorApp:
         
         # Initialize database
         self.init_database()
+        
+        # Center window
+        self.center_window()
+        
+        # Mostrar ventana después de construir todo
+        self.root.deiconify()
     
     # Title bar theme handled via utils.theme_titlebar
     

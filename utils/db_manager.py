@@ -1049,11 +1049,24 @@ def update_fondo(base_path: Path, fondo_id: int, **kwargs) -> bool:
     conn = sqlite3.connect(db_path); cur = conn.cursor()
     fields = []
     values = []
-    for k in ("nombre","descripcion","archivo_id","periodo_inicio","periodo_fin"):
+    
+    # Mapear campos legacy
+    field_mapping = {
+        'nombre': 'titulo'
+    }
+    
+    for k in ("nombre", "titulo", "codigo_referencia", "descripcion", "archivo_id", 
+              "periodo_inicio", "periodo_fin", "alcance_contenido", "organizacion",
+              "nivel_descripcion", "lengua_documentos"):
         if k in kwargs:
-            fields.append(f"{k}=?"); values.append(kwargs[k])
+            field_name = field_mapping.get(k, k)
+            fields.append(f"{field_name}=?")
+            values.append(kwargs[k])
+    
     if not fields:
         conn.close(); return False
+    
+    fields.append("updated_at=CURRENT_TIMESTAMP")
     values.append(fondo_id)
     cur.execute(f"UPDATE fondos SET {', '.join(fields)} WHERE id=?", values)
     conn.commit(); conn.close(); return True
