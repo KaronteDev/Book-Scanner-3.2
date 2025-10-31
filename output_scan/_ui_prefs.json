@@ -1,4 +1,11 @@
 {
-  "geometry": "1580x930+427+83",
-  "sash": 1351
+  "geometry": "1988x930+427+83",
+  "sash": 1761,
+  "page_margin": 2.358490566037736,
+  "thumb_padding_color": "#8080ff",
+  "resize": {
+    "enabled": false,
+    "width": 0,
+    "height": 0
+  }
 }

@@ -5,7 +5,7 @@ scanner_module.py — Core camera scanning functionality
 Extracted from gui_book_scan_tk2.py and refactored for modular integration
 """
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, colorchooser
 from pathlib import Path
 import threading
 import time
@@ -58,6 +58,8 @@ class CameraScanner:
         self._stable_contour = None  # Smoothed contour for display
         self._contour_history = []  # For smoothing
         self._book_split_line = None  # Vertical line for book mode
+        # Gallery thumbnail padding color (visual frame)
+        self.thumb_pad_color = '#ffffff'
         
         self.setup_ui()
         # Restore persisted UI state (window geometry and paned sash)
@@ -118,10 +120,22 @@ class CameraScanner:
         self.s_contrast = tk.DoubleVar(value=1.0)
         ttk.Scale(controls_frame, variable=self.s_contrast, from_=0.5, to=1.5, orient="horizontal", length=150).pack(side=tk.LEFT, padx=5)
 
-        # Page margin control (percentage for white padding on saved pages)
-        ttk.Label(controls_frame, text="Margen %:").pack(side=tk.LEFT, padx=(20, 5))
-        self.page_margin = tk.DoubleVar(value=3.0)  # percent (0-10)
-        ttk.Scale(controls_frame, variable=self.page_margin, from_=0.0, to=10.0, orient="horizontal", length=120).pack(side=tk.LEFT, padx=5)
+        # Thumbnail visual padding control (repurposed from page margin)
+        ttk.Label(controls_frame, text="Padding miniatura %:").pack(side=tk.LEFT, padx=(20, 5))
+        self.page_margin = tk.DoubleVar(value=0.0)  # percent (0-10) used as gallery thumb padding
+        ttk.Scale(
+            controls_frame,
+            variable=self.page_margin,
+            from_=0.0,
+            to=10.0,
+            orient="horizontal",
+            length=120,
+            command=lambda v: self._on_thumb_padding_change(),
+        ).pack(side=tk.LEFT, padx=5)
+        # Color chooser for padding
+        ttk.Button(controls_frame, text="Color…", command=self._on_choose_thumb_color).pack(side=tk.LEFT, padx=(8, 4))
+        self._thumb_color_swatch = tk.Label(controls_frame, width=2, bg=self.thumb_pad_color, relief='groove', bd=1)
+        self._thumb_color_swatch.pack(side=tk.LEFT, padx=(2, 0))
 
         # Resize controls
         ttk.Label(controls_frame, text="Redimensionar:").pack(side=tk.LEFT, padx=(20, 5))
@@ -146,22 +160,44 @@ class CameraScanner:
         ttk.Button(buttons_frame, text="📂 Abrir carpeta", command=self.open_output_folder).pack(side=tk.LEFT, padx=5)
 
         # --- Gallery (right panel) ---
+        # High-contrast scrollbar style (best effort; some themes may ignore)
+        try:
+            self._style = ttk.Style(self.parent)
+            self._style.configure('Gallery.Vertical.TScrollbar', background='#bfbfbf')
+            # On some themes troughcolor is honored:
+            self._style.configure('Gallery.Vertical.TScrollbar', troughcolor='#1e1e1e')
+            # Improve active state contrast
+            self._style.map('Gallery.Vertical.TScrollbar', background=[('active', '#d9d9d9'), ('!active', '#bfbfbf')])
+        except Exception:
+            pass
         self.gallery_container = ttk.Frame(right_panel)
-        self.gallery_container.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        # Increase right-side distance from panel border
+        self.gallery_container.pack(fill=tk.BOTH, expand=True, padx=(6, 18), pady=6)
 
         # Scrollable canvas for thumbnails
         self.gallery_canvas = tk.Canvas(self.gallery_container, bg="#0f0f0f", highlightthickness=0)
-        self.gallery_scroll = ttk.Scrollbar(self.gallery_container, orient=tk.VERTICAL, command=self.gallery_canvas.yview)
+        self.gallery_scroll = ttk.Scrollbar(self.gallery_container, orient=tk.VERTICAL, command=self.gallery_canvas.yview, style='Gallery.Vertical.TScrollbar')
         self.gallery_view = ttk.Frame(self.gallery_canvas)
         self.gallery_view.bind("<Configure>", lambda e: self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all")))
-        self.gallery_canvas.create_window((0, 0), window=self.gallery_view, anchor="nw")
+        # Keep a reference to the created window so we can resize it with the canvas
+        self._gallery_window_id = self.gallery_canvas.create_window((0, 0), window=self.gallery_view, anchor="nw")
         self.gallery_canvas.configure(yscrollcommand=self.gallery_scroll.set)
+        # Pack scrollbar first to ensure it always reserves space on the right
+        # (prevents visual overlap during rapid resizes)
+        # Make scrollbar a bit wider for visibility and add a small left padding
+        try:
+            self._gallery_scrollbar_width = 20
+            self.gallery_scroll.config(width=self._gallery_scrollbar_width)
+        except Exception:
+            self._gallery_scrollbar_width = 12
+        self.gallery_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
         self.gallery_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         # Mouse wheel scrolling
         self.gallery_canvas.bind('<MouseWheel>', self._on_gallery_mousewheel)
         self.gallery_canvas.bind('<Button-4>', lambda e: self._gallery_scroll(-1))  # Linux scroll up
         self.gallery_canvas.bind('<Button-5>', lambda e: self._gallery_scroll(1))   # Linux scroll down
-        self.gallery_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        # Rebuild thumbnails on width changes to adapt to gallery width
+        self.gallery_canvas.bind('<Configure>', lambda e: self._on_gallery_resize())
 
         # State for gallery
         self._gallery_order = []
@@ -195,6 +231,7 @@ class CameraScanner:
                 geom = data.get("geometry")
                 sash = data.get("sash")
                 pm = data.get("page_margin")
+                thumb_color = data.get("thumb_padding_color")
                 resize = data.get("resize") or {}
                 if isinstance(geom, str):
                     # Apply window geometry to parent toplevel
@@ -208,6 +245,17 @@ class CameraScanner:
                         self.page_margin.set(float(pm))
                 except Exception:
                     pass
+                # Restore thumbnail padding color
+                try:
+                    if isinstance(thumb_color, str) and thumb_color.startswith('#'):
+                        self.thumb_pad_color = thumb_color
+                        try:
+                            self._thumb_color_swatch.config(bg=self.thumb_pad_color)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
                 # Restore resize settings
                 try:
                     en = resize.get("enabled")
@@ -277,15 +325,23 @@ class CameraScanner:
         except Exception:
             pass
 
-    def _thumb_for(self, filename: str):
-        if filename in self._thumb_cache:
-            return self._thumb_cache[filename]
+    def _thumb_for(self, filename: str, max_width: int):
+        key = (filename, max_width)
+        if key in self._thumb_cache:
+            return self._thumb_cache[key]
         try:
             full = self.output_dir / filename
             img = Image.open(full)
-            img.thumbnail((180, 180), Image.Resampling.LANCZOS)
+            # Target width equals available gallery width minus padding
+            w, h = img.size
+            tw = max(50, int(max_width))
+            scale = min(1.0, tw / max(1, w))
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
+            if new_w != w or new_h != h:
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
             tkimg = ImageTk.PhotoImage(img)
-            self._thumb_cache[filename] = tkimg
+            self._thumb_cache[key] = tkimg
             return tkimg
         except Exception:
             return None
@@ -294,6 +350,8 @@ class CameraScanner:
         # Clear
         for w in list(self.gallery_view.children.values()):
             w.destroy()
+        # Compute target width for thumbnails
+        t_width = self._thumb_target_width()
         for idx, fn in enumerate(self._gallery_order):
             # Highlight selection background
             bg = "#1e1e1e" if idx != self._selected_index else "#2d3d5f"
@@ -301,29 +359,109 @@ class CameraScanner:
             item = tk.Frame(self.gallery_view, bg=bg)
             item.pack(fill=tk.X, pady=6, padx=8)
             item.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
-            item.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+            item.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
             item.bind('<B1-Motion>', self._on_thumb_motion)
             item.bind('<ButtonRelease-1>', self._on_thumb_release)
 
             inner = tk.Frame(item, bg=bg)
-            inner.pack(fill=tk.X)
+            inner.pack(fill=tk.X, expand=True)
 
-            thumb = self._thumb_for(fn)
+            thumb = self._thumb_for(fn, t_width)
             if thumb:
-                lbl_img = tk.Label(inner, image=thumb, bg=bg)
-                lbl_img.image = thumb
-                lbl_img.pack(padx=6, pady=(6, 2))
-                lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
-                lbl_img.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
-                lbl_img.bind('<B1-Motion>', self._on_thumb_motion)
-                lbl_img.bind('<ButtonRelease-1>', self._on_thumb_release)
+                pad_px = self._thumb_padding_px(t_width)
+                if pad_px > 0:
+                    pad_frame = tk.Frame(inner, bg=self.thumb_pad_color)
+                    pad_frame.pack(padx=6, pady=(6, 2), anchor='center')
+                    lbl_img = tk.Label(pad_frame, image=thumb, bg=self.thumb_pad_color)
+                    lbl_img.image = thumb
+                    lbl_img.pack(padx=pad_px, pady=pad_px)
+                    # Bind events on both frame and label
+                    for wdg in (pad_frame, lbl_img):
+                        wdg.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+                        wdg.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
+                        wdg.bind('<B1-Motion>', self._on_thumb_motion)
+                        wdg.bind('<ButtonRelease-1>', self._on_thumb_release)
+                else:
+                    lbl_img = tk.Label(inner, image=thumb, bg=bg)
+                    lbl_img.image = thumb
+                    lbl_img.pack(padx=6, pady=(6, 2), anchor='center')
+                    lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+                    lbl_img.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
+                    lbl_img.bind('<B1-Motion>', self._on_thumb_motion)
+                    lbl_img.bind('<ButtonRelease-1>', self._on_thumb_release)
 
-            lbl_text = tk.Label(item, text=fn, bg=bg, fg='#ddd', wraplength=180, justify='center')
+            lbl_text = tk.Label(item, text=fn, bg=bg, fg='#ddd', wraplength=t_width, justify='center')
             lbl_text.pack(fill=tk.X, padx=6, pady=(0, 6))
             lbl_text.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
-            lbl_text.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+            lbl_text.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
             lbl_text.bind('<B1-Motion>', self._on_thumb_motion)
             lbl_text.bind('<ButtonRelease-1>', self._on_thumb_release)
+
+    def _thumb_padding_px(self, t_width: int) -> int:
+        """Compute pixel padding for thumbnail based on percentage control and target width."""
+        try:
+            pct = float(self.page_margin.get())
+        except Exception:
+            pct = 0.0
+        pct = max(0.0, min(20.0, pct))  # clamp 0-20%
+        return int(t_width * (pct / 100.0))
+
+    def _on_thumb_padding_change(self):
+        """Rebuild gallery when padding slider changes (throttled)."""
+        try:
+            if hasattr(self, '_thumb_padding_after') and self._thumb_padding_after:
+                self.parent.after_cancel(self._thumb_padding_after)
+        except Exception:
+            pass
+        self._thumb_padding_after = self.parent.after(80, self._build_gallery)
+
+    def _on_choose_thumb_color(self):
+        try:
+            color = colorchooser.askcolor(parent=self.parent, color=self.thumb_pad_color, title="Color de padding de miniatura")
+            # askcolor returns (rgb_tuple, hex) or (None, None)
+            if color and color[1]:
+                self.thumb_pad_color = color[1]
+                try:
+                    self._thumb_color_swatch.config(bg=self.thumb_pad_color)
+                except Exception:
+                    pass
+                self._build_gallery()
+            # Ensure scanner window stays on top/focused (prevent main app popping to front)
+            try:
+                self.parent.lift()
+                self.parent.focus_force()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _thumb_target_width(self) -> int:
+        try:
+            # Canvas width minus padding and scrollbar (~8px left/right + 12px)
+            cw = self.gallery_canvas.winfo_width()
+            if cw <= 0:
+                return 180
+            # Account for outer padding (item padx=8) and some margin
+            sbw = getattr(self, '_gallery_scrollbar_width', 12)
+            return max(100, cw - 8 - sbw - 12)
+        except Exception:
+            return 180
+
+    def _on_gallery_resize(self):
+        """Rebuild gallery thumbnails when the canvas size changes."""
+        try:
+            # Ensure the embedded frame tracks the canvas width
+            try:
+                if hasattr(self, '_gallery_window_id') and self._gallery_window_id:
+                    self.gallery_canvas.itemconfig(self._gallery_window_id, width=self.gallery_canvas.winfo_width())
+            except Exception:
+                pass
+            # Throttle rapid resizes and rebuild thumbs after layout settles
+            if hasattr(self, '_gallery_resize_after') and self._gallery_resize_after:
+                self.parent.after_cancel(self._gallery_resize_after)
+        except Exception:
+            pass
+        self._gallery_resize_after = self.parent.after(120, self._build_gallery)
 
     def _on_gallery_mousewheel(self, event):
         """Scroll gallery canvas with mouse wheel (Windows/macOS)."""
@@ -516,7 +654,8 @@ class CameraScanner:
             pass
         # Ensure selection highlight updates
         self._build_gallery()
-        return 'break'
+        # Don't return 'break' so double-click can be detected by Tk
+        # return 'break'
 
     def _on_thumb_motion(self, event):
         if self._dragging_index is None:
@@ -1252,9 +1391,8 @@ class CameraScanner:
             filename = f"scan_{self._frame_counter:04d}.jpg"
             output_path = self.output_dir / filename
             
-            # Add white border if configured
-            bordered = self._add_white_border(img)
-            resized = self._resize_page(bordered)
+            # Removed white border on save; resize only
+            resized = self._resize_page(img)
             pil_img = Image.fromarray(resized)
             pil_img.save(output_path, "JPEG", quality=95)
             
@@ -1307,10 +1445,7 @@ class CameraScanner:
             
             self._frame_counter += 1
             
-            # Add white borders if configured
-            left_page = self._add_white_border(left_page)
-            right_page = self._add_white_border(right_page)
-            # Apply resize if configured
+            # Removed white borders on save; apply resize if configured
             left_page = self._resize_page(left_page)
             right_page = self._resize_page(right_page)
 
@@ -1639,7 +1774,13 @@ class CameraScanner:
                 }
             except Exception:
                 resize = None
-            data = {"geometry": geom, "sash": sash, "page_margin": pm, "resize": resize}
+            data = {
+                "geometry": geom,
+                "sash": sash,
+                "page_margin": pm,
+                "thumb_padding_color": self.thumb_pad_color,
+                "resize": resize,
+            }
             self._prefs_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             # Ignore save errors silently
