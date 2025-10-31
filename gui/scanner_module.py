@@ -10,6 +10,7 @@ from pathlib import Path
 import threading
 import time
 from typing import Optional, List, Tuple
+import json
 
 try:
     import cv2
@@ -33,6 +34,8 @@ class CameraScanner:
         self.parent = parent
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        # UI preferences file (store under output directory)
+        self._prefs_path = self.output_dir / "_ui_prefs.json"
         
         self.cap = None
         self._preview_running = False
@@ -41,14 +44,24 @@ class CameraScanner:
         self.camera_map = {}
         self.camera_resolutions = {}
         self._frame_counter = 0
+        self._detection_frame_counter = 0  # For detection throttling
+        
+        # Frame buffer for thread-safe display
+        self._current_frame = None
+        self._frame_lock = threading.Lock()
         
         # Calibration and detection
         self.calibration_area = None  # {tl: (x, y), br: (x, y)} normalized coords
         self.detect_page = tk.BooleanVar(value=True)
         self.book_mode = tk.BooleanVar(value=False)
         self.detected_contour = None
+        self._stable_contour = None  # Smoothed contour for display
+        self._contour_history = []  # For smoothing
+        self._book_split_line = None  # Vertical line for book mode
         
         self.setup_ui()
+        # Restore persisted UI state (window geometry and paned sash)
+        self._restore_ui_prefs()
         self.refresh_cameras()
         
     def setup_ui(self):
@@ -56,117 +69,341 @@ class CameraScanner:
         # Main container
         main_frame = ttk.Frame(self.parent, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
-        
+
         # Top toolbar
         toolbar = ttk.Frame(main_frame)
         toolbar.pack(fill=tk.X, pady=(0, 10))
-        
+
         ttk.Label(toolbar, text="Cámara:").pack(side=tk.LEFT, padx=5)
-        
+
         self.cmb_cam = ttk.Combobox(toolbar, width=35, state="readonly")
         self.cmb_cam.pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            toolbar,
-            text="Refrescar",
-            command=self.refresh_cameras
-        ).pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            toolbar,
-            text="Conectar",
-            command=self.open_camera
-        ).pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            toolbar,
-            text="Desconectar",
-            command=self.close_camera
-        ).pack(side=tk.LEFT, padx=5)
-        
+
+        ttk.Button(toolbar, text="Refrescar", command=self.refresh_cameras).pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="Conectar", command=self.open_camera).pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="Desconectar", command=self.close_camera).pack(side=tk.LEFT, padx=5)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
-        
-        ttk.Checkbutton(
-            toolbar,
-            text="Detectar página",
-            variable=self.detect_page
-        ).pack(side=tk.LEFT, padx=5)
-        
-        ttk.Checkbutton(
-            toolbar,
-            text="Modo libro",
-            variable=self.book_mode
-        ).pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            toolbar,
-            text="⚙️ Calibrar área",
-            command=self.open_calibration
-        ).pack(side=tk.LEFT, padx=5)
-        
-        # Preview canvas
-        canvas_frame = ttk.Frame(main_frame)
+
+        ttk.Checkbutton(toolbar, text="Detectar página", variable=self.detect_page).pack(side=tk.LEFT, padx=5)
+        ttk.Checkbutton(toolbar, text="Modo libro", variable=self.book_mode).pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="⚙️ Calibrar área", command=self.open_calibration).pack(side=tk.LEFT, padx=5)
+
+        # Detection status indicator
+        self.detection_status_label = ttk.Label(toolbar, text="", foreground="gray")
+        self.detection_status_label.pack(side=tk.LEFT, padx=10)
+
+        # Paned window (left: preview, right: gallery)
+        self.paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        self.paned.pack(fill=tk.BOTH, expand=True)
+
+        left_panel = ttk.Frame(self.paned)
+        right_panel = ttk.Frame(self.paned, width=280)
+        self.paned.add(left_panel, weight=3)
+        self.paned.add(right_panel, weight=1)
+
+        # Preview canvas in left panel
+        canvas_frame = ttk.Frame(left_panel)
         canvas_frame.pack(fill=tk.BOTH, expand=True, pady=10)
-        
-        self.canvas = tk.Canvas(
-            canvas_frame,
-            width=960,
-            height=720,
-            bg="#1a1a1a",
-            highlightthickness=0
-        )
-        self.canvas.pack()
-        
+        self.canvas = tk.Canvas(canvas_frame, width=960, height=720, bg="#1a1a1a", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
         self._image_item = self.canvas.create_image(0, 0, anchor="nw", image=None)
-        
-        # Image adjustments
-        controls_frame = ttk.Frame(main_frame)
+
+        # Image adjustments (left panel)
+        controls_frame = ttk.Frame(left_panel)
         controls_frame.pack(fill=tk.X, pady=(0, 10))
-        
         ttk.Label(controls_frame, text="Brillo:").pack(side=tk.LEFT, padx=5)
         self.s_brightness = tk.DoubleVar(value=1.0)
-        ttk.Scale(
-            controls_frame,
-            variable=self.s_brightness,
-            from_=0.5,
-            to=1.5,
-            orient="horizontal",
-            length=150
-        ).pack(side=tk.LEFT, padx=5)
-        
+        ttk.Scale(controls_frame, variable=self.s_brightness, from_=0.5, to=1.5, orient="horizontal", length=150).pack(side=tk.LEFT, padx=5)
         ttk.Label(controls_frame, text="Contraste:").pack(side=tk.LEFT, padx=(20, 5))
         self.s_contrast = tk.DoubleVar(value=1.0)
-        ttk.Scale(
-            controls_frame,
-            variable=self.s_contrast,
-            from_=0.5,
-            to=1.5,
-            orient="horizontal",
-            length=150
-        ).pack(side=tk.LEFT, padx=5)
-        
-        # Bottom buttons
-        buttons_frame = ttk.Frame(main_frame)
+        ttk.Scale(controls_frame, variable=self.s_contrast, from_=0.5, to=1.5, orient="horizontal", length=150).pack(side=tk.LEFT, padx=5)
+
+        # Page margin control (percentage for white padding on saved pages)
+        ttk.Label(controls_frame, text="Margen %:").pack(side=tk.LEFT, padx=(20, 5))
+        self.page_margin = tk.DoubleVar(value=3.0)  # percent (0-10)
+        ttk.Scale(controls_frame, variable=self.page_margin, from_=0.0, to=10.0, orient="horizontal", length=120).pack(side=tk.LEFT, padx=5)
+
+        # Resize controls
+        ttk.Label(controls_frame, text="Redimensionar:").pack(side=tk.LEFT, padx=(20, 5))
+        self.resize_enabled = tk.BooleanVar(value=False)
+        self.chk_resize = ttk.Checkbutton(controls_frame, variable=self.resize_enabled, command=self._toggle_resize_controls)
+        self.chk_resize.pack(side=tk.LEFT, padx=(0, 8))
+        self.lbl_width = ttk.Label(controls_frame, text="Ancho(px):")
+        self.lbl_width.pack(side=tk.LEFT, padx=(8, 4))
+        self.target_width = tk.IntVar(value=0)
+        self.spin_width = tk.Spinbox(controls_frame, from_=0, to=10000, width=6, textvariable=self.target_width, state='disabled')
+        self.spin_width.pack(side=tk.LEFT)
+        self.lbl_height = ttk.Label(controls_frame, text="Alto(px):")
+        self.lbl_height.pack(side=tk.LEFT, padx=(8, 4))
+        self.target_height = tk.IntVar(value=0)
+        self.spin_height = tk.Spinbox(controls_frame, from_=0, to=10000, width=6, textvariable=self.target_height, state='disabled')
+        self.spin_height.pack(side=tk.LEFT)
+
+        # Bottom buttons (left panel)
+        buttons_frame = ttk.Frame(left_panel)
         buttons_frame.pack(fill=tk.X)
-        
-        ttk.Button(
-            buttons_frame,
-            text="📸 Capturar (Espacio)",
-            command=self.capture_image
-        ).pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            buttons_frame,
-            text="📂 Abrir carpeta",
-            command=self.open_output_folder
-        ).pack(side=tk.LEFT, padx=5)
-        
-        # Bind keyboard shortcuts
+        ttk.Button(buttons_frame, text="📸 Capturar (Espacio)", command=self.capture_image).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="📂 Abrir carpeta", command=self.open_output_folder).pack(side=tk.LEFT, padx=5)
+
+        # --- Gallery (right panel) ---
+        self.gallery_container = ttk.Frame(right_panel)
+        self.gallery_container.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+
+        # Scrollable canvas for thumbnails
+        self.gallery_canvas = tk.Canvas(self.gallery_container, bg="#0f0f0f", highlightthickness=0)
+        self.gallery_scroll = ttk.Scrollbar(self.gallery_container, orient=tk.VERTICAL, command=self.gallery_canvas.yview)
+        self.gallery_view = ttk.Frame(self.gallery_canvas)
+        self.gallery_view.bind("<Configure>", lambda e: self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all")))
+        self.gallery_canvas.create_window((0, 0), window=self.gallery_view, anchor="nw")
+        self.gallery_canvas.configure(yscrollcommand=self.gallery_scroll.set)
+        self.gallery_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.gallery_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # State for gallery
+        self._gallery_order = []
+        self._thumb_cache = {}
+        self._selected_index = None
+        self._dragging_index = None
+
+        # Load existing images and build gallery
+        self._load_gallery_manifest()
+        self._build_gallery()
+
+        # Keyboard bindings
         self.parent.bind('<space>', lambda e: self.capture_image())
         self.parent.bind('<Escape>', lambda e: self.close_camera())
-        
-        # Show initial state
+        # Bind Delete only when gallery has focus to avoid global side-effects
+        self.gallery_container.bind('<Delete>', self._on_delete_key)
+        # Optional keyboard reordering: Ctrl+Up / Ctrl+Down
+        self.gallery_container.bind('<Control-Up>', lambda e: self._move_selected(-1))
+        self.gallery_container.bind('<Control-Down>', lambda e: self._move_selected(1))
+
+        # Show initial state on preview
         self._show_camera_off_screen()
+        # Ensure resize controls reflect current toggle
+        self._toggle_resize_controls()
+
+    def _restore_ui_prefs(self):
+        """Restore window geometry, paned sash and UI options if saved previously"""
+        try:
+            if self._prefs_path.exists():
+                data = json.loads(self._prefs_path.read_text(encoding="utf-8"))
+                geom = data.get("geometry")
+                sash = data.get("sash")
+                pm = data.get("page_margin")
+                resize = data.get("resize") or {}
+                if isinstance(geom, str):
+                    # Apply window geometry to parent toplevel
+                    self.parent.geometry(geom)
+                if sash is not None:
+                    # Defer sash restore until layout is ready
+                    self.parent.after(100, lambda: self._set_sash_safe(sash))
+                # Restore page margin
+                try:
+                    if pm is not None:
+                        self.page_margin.set(float(pm))
+                except Exception:
+                    pass
+                # Restore resize settings
+                try:
+                    en = resize.get("enabled")
+                    if en is not None:
+                        self.resize_enabled.set(bool(en))
+                    tw = resize.get("width")
+                    if tw is not None:
+                        self.target_width.set(int(tw))
+                    th = resize.get("height")
+                    if th is not None:
+                        self.target_height.set(int(th))
+                    # Reflect toggle state in controls
+                    self._toggle_resize_controls()
+                except Exception:
+                    pass
+        except Exception:
+            # Ignore restore errors silently
+            pass
+
+    def _set_sash_safe(self, pos):
+        try:
+            if hasattr(self, "paned") and self.paned.winfo_ismapped():
+                total = max(self.paned.winfo_width(), 1)
+                # Clamp sash position reasonably
+                clamped = max(200, min(int(pos), total - 150))
+                try:
+                    self.paned.sashpos(0, clamped)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # --- Gallery helpers ---
+    def _gallery_files_in_dir(self) -> List[str]:
+        exts = {'.jpg', '.jpeg', '.png', '.bmp'}
+        files = []
+        try:
+            for p in sorted(self.output_dir.iterdir()):
+                if p.suffix.lower() in exts and p.is_file():
+                    files.append(p.name)
+        except Exception:
+            pass
+        return files
+
+    def _manifest_path(self) -> Path:
+        return self.output_dir / "_gallery.json"
+
+    def _load_gallery_manifest(self):
+        mp = self._manifest_path()
+        if mp.exists():
+            try:
+                data = json.load(mp.open('r', encoding='utf-8'))
+                if isinstance(data, list):
+                    self._gallery_order = [fn for fn in data if (self.output_dir / fn).exists()]
+                else:
+                    self._gallery_order = []
+            except Exception:
+                self._gallery_order = []
+        else:
+            # Initialize from directory
+            self._gallery_order = self._gallery_files_in_dir()
+            self._save_gallery_manifest()
+
+    def _save_gallery_manifest(self):
+        try:
+            json.dump(self._gallery_order, self._manifest_path().open('w', encoding='utf-8'), ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _thumb_for(self, filename: str):
+        if filename in self._thumb_cache:
+            return self._thumb_cache[filename]
+        try:
+            full = self.output_dir / filename
+            img = Image.open(full)
+            img.thumbnail((180, 180), Image.Resampling.LANCZOS)
+            tkimg = ImageTk.PhotoImage(img)
+            self._thumb_cache[filename] = tkimg
+            return tkimg
+        except Exception:
+            return None
+
+    def _build_gallery(self):
+        # Clear
+        for w in list(self.gallery_view.children.values()):
+            w.destroy()
+        for idx, fn in enumerate(self._gallery_order):
+            # Highlight selection background
+            bg = "#1e1e1e" if idx != self._selected_index else "#2d3d5f"
+
+            item = tk.Frame(self.gallery_view, bg=bg)
+            item.pack(fill=tk.X, pady=6, padx=8)
+            item.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+            item.bind('<B1-Motion>', self._on_thumb_motion)
+            item.bind('<ButtonRelease-1>', self._on_thumb_release)
+
+            inner = tk.Frame(item, bg=bg)
+            inner.pack(fill=tk.X)
+
+            thumb = self._thumb_for(fn)
+            if thumb:
+                lbl_img = tk.Label(inner, image=thumb, bg=bg)
+                lbl_img.image = thumb
+                lbl_img.pack(padx=6, pady=(6, 2))
+                lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+                lbl_img.bind('<B1-Motion>', self._on_thumb_motion)
+                lbl_img.bind('<ButtonRelease-1>', self._on_thumb_release)
+
+            lbl_text = tk.Label(item, text=fn, bg=bg, fg='#ddd', wraplength=180, justify='center')
+            lbl_text.pack(fill=tk.X, padx=6, pady=(0, 6))
+            lbl_text.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+            lbl_text.bind('<B1-Motion>', self._on_thumb_motion)
+            lbl_text.bind('<ButtonRelease-1>', self._on_thumb_release)
+
+    def _on_thumb_press(self, index: int, event):
+        self._selected_index = index
+        self._dragging_index = index
+        # Focus gallery for Delete key handling
+        try:
+            self.gallery_container.focus_set()
+        except Exception:
+            pass
+        # Ensure selection highlight updates
+        self._build_gallery()
+        return 'break'
+
+    def _on_thumb_motion(self, event):
+        if self._dragging_index is None:
+            return
+        try:
+            # Y position in canvas coordinates (accounts for scroll)
+            y_canvas = self.gallery_canvas.canvasy(event.y_root - self.gallery_canvas.winfo_rooty())
+            # Determine target index by scanning children positions
+            children = list(self.gallery_view.children.values())
+            target = self._dragging_index
+            for i, child in enumerate(children):
+                cy = child.winfo_y()
+                ch = child.winfo_height() or 200
+                if y_canvas < cy + ch / 2.0:
+                    target = i
+                    break
+            else:
+                target = len(children) - 1
+
+            target = max(0, min(target, len(self._gallery_order) - 1))
+            if target != self._dragging_index:
+                fn = self._gallery_order.pop(self._dragging_index)
+                self._gallery_order.insert(target, fn)
+                self._dragging_index = target
+                self._selected_index = target
+                self._build_gallery()
+        except Exception:
+            pass
+        return 'break'
+
+    def _on_thumb_release(self, event):
+        if self._dragging_index is not None:
+            self._save_gallery_manifest()
+        self._dragging_index = None
+        return 'break'
+
+    def _on_delete_key(self, event):
+        # Only act if the gallery has focus or mouse over it
+        if self._selected_index is None:
+            return 'break'
+        if not self.gallery_container.winfo_ismapped():
+            return 'break'
+        if not messagebox.askyesno("Borrar", "¿Seguro que quieres borrar la imagen seleccionada?\nEsta acción no se puede deshacer."):
+            return 'break'
+        try:
+            fn = self._gallery_order[self._selected_index]
+            (self.output_dir / fn).unlink(missing_ok=True)
+            self._thumb_cache.pop(fn, None)
+            self._gallery_order.pop(self._selected_index)
+            if self._selected_index >= len(self._gallery_order):
+                self._selected_index = len(self._gallery_order) - 1 if self._gallery_order else None
+            self._save_gallery_manifest()
+            self._build_gallery()
+        except Exception as e:
+            messagebox.showerror("Borrado", f"No se pudo borrar: {e}")
+        return 'break'
+
+    def _move_selected(self, delta: int):
+        """Move selected gallery item up/down by delta (±1)."""
+        if self._selected_index is None:
+            return 'break'
+        i = self._selected_index
+        j = i + delta
+        if j < 0 or j >= len(self._gallery_order):
+            return 'break'
+        self._gallery_order[i], self._gallery_order[j] = self._gallery_order[j], self._gallery_order[i]
+        self._selected_index = j
+        self._dragging_index = None
+        self._save_gallery_manifest()
+        self._build_gallery()
+        try:
+            self.gallery_container.focus_set()
+        except Exception:
+            pass
+        return 'break'
         
     def detect_cameras(self, max_index: int = 8) -> List[tuple]:
         """Detect available cameras and return list of (index, name, max_width, max_height) tuples"""
@@ -293,16 +530,167 @@ class CameraScanner:
                     # Convert BGR to RGB
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     
-                    # Apply adjustments and detect page
+                    # Apply adjustments and detect page (throttled)
                     adjusted, contour = self._apply_adjustments(frame_rgb)
-                    self.detected_contour = contour
                     
-                    # Update canvas
-                    self._update_canvas(adjusted)
+                    # Stabilize contour detection
+                    if contour is not None:
+                        self._stabilize_contour(contour)
+                    
+                    # Detect book split line if in book mode
+                    if self.book_mode.get() and self._stable_contour is not None:
+                        self._detect_book_split_line(adjusted, self._stable_contour)
+                    else:
+                        self._book_split_line = None
+                    
+                    # Draw overlays on frame
+                    display_frame = self._draw_overlays(adjusted)
+                    
+                    # Store frame in buffer (thread-safe)
+                    with self._frame_lock:
+                        self._current_frame = display_frame
+                    
+                    # Update detection status (less frequently)
+                    if self._detection_frame_counter % 10 == 0:
+                        self.parent.after(0, lambda: self._update_detection_status(self._stable_contour))
+                    
+                    self._detection_frame_counter += 1
                 
                 time.sleep(0.033)  # ~30 fps
         
         threading.Thread(target=preview_loop, daemon=True).start()
+        
+        # Start UI update loop
+        self._update_canvas_loop()
+    
+    def _update_canvas_loop(self):
+        """Update canvas from buffer (runs in main thread)"""
+        if not self._preview_running:
+            return
+        
+        # Get frame from buffer
+        with self._frame_lock:
+            frame = self._current_frame
+        
+        # Update canvas if frame available
+        if frame is not None:
+            self._render_to_canvas(frame)
+        
+        # Schedule next update
+        self.parent.after(33, self._update_canvas_loop)  # ~30 fps
+    
+    def _stabilize_contour(self, contour):
+        """Stabilize contour detection using history"""
+        if cv2 is None or np is None:
+            self._stable_contour = contour
+            return
+        
+        # Add to history
+        self._contour_history.append(contour)
+        
+        # Keep only last 5 detections
+        if len(self._contour_history) > 5:
+            self._contour_history.pop(0)
+        
+        # Average the contours
+        if len(self._contour_history) >= 3:
+            avg_contour = np.mean(self._contour_history, axis=0).astype(np.int32)
+            self._stable_contour = avg_contour
+        else:
+            self._stable_contour = contour
+    
+    def _detect_book_split_line(self, img, contour):
+        """Detect split line for book mode; not constrained to vertical. Stores either (x1,y1,x2,y2) or int x."""
+        if cv2 is None or np is None:
+            return
+
+        try:
+            # Get bounding box of contour
+            x, y, w, h = cv2.boundingRect(contour)
+
+            # Extract book region
+            roi = img[y:y+h, x:x+w]
+            gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+            gray = cv2.GaussianBlur(gray, (5, 5), 0)
+            edges = cv2.Canny(gray, 50, 150)
+
+            # Hough transform for line segments
+            lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=int(0.5*h), maxLineGap=20)
+            best = None
+            best_len = 0
+            if lines is not None:
+                for l in lines[:, 0, :]:
+                    x1, y1, x2, y2 = l.tolist()
+                    # Compute angle relative to vertical
+                    dx, dy = x2 - x1, y2 - y1
+                    length = (dx*dx + dy*dy) ** 0.5
+                    if length < best_len:
+                        # We track only longest
+                        pass
+                    # Avoid near-horizontal (|angle from vertical| < ~30°)
+                    angle = abs(np.degrees(np.arctan2(dy, dx)))
+                    angle_from_vertical = abs(90 - angle)
+                    if angle_from_vertical > 30:
+                        continue
+                    # Must pass through middle band of ROI width
+                    mid_x = (x1 + x2) / 2.0
+                    if not (w * 0.25 <= mid_x <= w * 0.75):
+                        continue
+                    if length > best_len:
+                        best_len = length
+                        best = (x + x1, y + y1, x + x2, y + y2)
+
+            if best is not None:
+                self._book_split_line = best
+                return
+
+            # Fallback to darkest vertical line in center region
+            vertical_sum = np.sum(gray, axis=0)
+            if len(vertical_sum) > 0:
+                start = int(w * 0.3)
+                end = int(w * 0.7)
+                mid_region = vertical_sum[start:end]
+                if len(mid_region) > 0:
+                    local_min = int(np.argmin(mid_region))
+                    split_x = x + start + local_min
+                    self._book_split_line = split_x
+                    return
+            # Fallback to center of ROI
+            self._book_split_line = x + w // 2
+        except Exception as e:
+            print(f"Error detecting book split: {e}")
+            self._book_split_line = img.shape[1] // 2
+    
+    def _draw_overlays(self, img):
+        """Draw all overlays on frame (contours, calibration, book split)"""
+        if np is None:
+            return img
+        
+        # Make a copy to draw on
+        display_img = img.copy()
+        
+        # Draw detected page contour
+        if self._stable_contour is not None and self.detect_page.get():
+            self._draw_contour_on_frame(display_img, self._stable_contour)
+        
+        # Draw book split line
+        if self._book_split_line is not None and self.book_mode.get():
+            self._draw_book_split_line(display_img, self._book_split_line)
+        
+        # Draw calibration area
+        if self.calibration_area:
+            self._draw_calibration_on_frame(display_img)
+        
+        return display_img
+    
+    def _update_detection_status(self, contour):
+        """Update detection status indicator"""
+        if not self.detect_page.get():
+            self.detection_status_label.config(text="", foreground="gray")
+        elif contour is not None:
+            self.detection_status_label.config(text="✓ Página detectada", foreground="green")
+        else:
+            self.detection_status_label.config(text="⚠ Sin detección", foreground="orange")
     
     def _apply_adjustments(self, img_array):
         """Apply brightness/contrast adjustments and detect page if enabled"""
@@ -326,10 +714,11 @@ class CameraScanner:
             
             adjusted = np.array(pil_img) if np else img_array
             
-            # Detect page contour if enabled
+            # Detect page contour if enabled (only every 5 frames to reduce CPU load)
             contour = None
             if self.detect_page.get() and cv2 is not None and np is not None:
-                contour = self._detect_page_contour(adjusted)
+                if self._detection_frame_counter % 5 == 0:
+                    contour = self._detect_page_contour(adjusted)
             
             return adjusted, contour
         except Exception:
@@ -341,14 +730,25 @@ class CameraScanner:
             return None
         
         try:
-            # Convert to grayscale
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            # Resize image for faster processing (scale down to max 800px width)
+            h, w = img.shape[:2]
+            scale = 1.0
+            if w > 800:
+                scale = 800.0 / w
+                new_w = 800
+                new_h = int(h * scale)
+                img_small = cv2.resize(img, (new_w, new_h))
+            else:
+                img_small = img
             
-            # Apply bilateral filter to reduce noise while keeping edges sharp
-            filtered = cv2.bilateralFilter(gray, 9, 75, 75)
+            # Convert to grayscale
+            gray = cv2.cvtColor(img_small, cv2.COLOR_RGB2GRAY)
+            
+            # Use simple blur instead of bilateral (faster)
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
             
             # Edge detection
-            edges = cv2.Canny(filtered, 50, 150)
+            edges = cv2.Canny(blurred, 50, 150)
             
             # Dilate edges to close gaps
             kernel = np.ones((3, 3), np.uint8)
@@ -361,7 +761,7 @@ class CameraScanner:
                 return None
             
             # Filter contours by area (must be at least 10% of image)
-            img_area = img.shape[0] * img.shape[1]
+            img_area = img_small.shape[0] * img_small.shape[1]
             min_area = img_area * 0.1
             
             valid_contours = [c for c in contours if cv2.contourArea(c) > min_area]
@@ -378,13 +778,20 @@ class CameraScanner:
             
             # We want a quadrilateral (4 corners)
             if len(approx) == 4:
-                return approx.reshape(4, 2)
+                # Scale back to original size
+                result = approx.reshape(4, 2)
+                if scale != 1.0:
+                    result = (result / scale).astype(np.int32)
+                return result
             
             # If not exactly 4, try with different epsilon
-            for epsilon_mult in [0.01, 0.03, 0.04, 0.05]:
+            for epsilon_mult in [0.01, 0.03, 0.04]:
                 approx = cv2.approxPolyDP(largest, epsilon_mult * peri, True)
                 if len(approx) == 4:
-                    return approx.reshape(4, 2)
+                    result = approx.reshape(4, 2)
+                    if scale != 1.0:
+                        result = (result / scale).astype(np.int32)
+                    return result
             
             return None
         except Exception as e:
@@ -444,8 +851,36 @@ class CameraScanner:
         except Exception as e:
             print(f"Error drawing calibration: {e}")
     
-    def _update_canvas(self, img_array):
-        """Update canvas with frame"""
+    def _draw_book_split_line(self, img, split):
+        """Draw split line (vertical or slanted)."""
+        if cv2 is None:
+            return
+
+        try:
+            h = img.shape[0]
+            if isinstance(split, int):
+                x = split
+                cv2.line(img, (x, 0), (x, h), (0, 255, 255), 3)
+                label_pos = (max(0, x - 40), 30)
+            else:
+                x1, y1, x2, y2 = map(int, split)
+                cv2.line(img, (x1, y1), (x2, y2), (0, 255, 255), 3)
+                label_pos = (min(x1, x2), max(0, min(y1, y2) - 10))
+
+            cv2.putText(
+                img,
+                "DIVISION",
+                label_pos,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 255),
+                2
+            )
+        except Exception as e:
+            print(f"Error drawing split line: {e}")
+    
+    def _render_to_canvas(self, img_array):
+        """Render frame to canvas (called from main thread)"""
         if Image is None or ImageTk is None:
             return
         
@@ -453,19 +888,8 @@ class CameraScanner:
             # Clear any "camera off" message
             self.canvas.delete("camera_off_message")
             
-            # Draw overlays on frame if needed
-            display_img = img_array.copy() if np else img_array
-            
-            # Draw detected page contour
-            if self.detected_contour is not None:
-                self._draw_contour_on_frame(display_img, self.detected_contour)
-            
-            # Draw calibration area
-            if self.calibration_area:
-                self._draw_calibration_on_frame(display_img)
-            
             # Convert to PIL and resize to fit canvas
-            pil_img = Image.fromarray(display_img)
+            pil_img = Image.fromarray(img_array)
             cw = self.canvas.winfo_width() or 960
             ch = self.canvas.winfo_height() or 720
             
@@ -524,8 +948,8 @@ class CameraScanner:
         # Convert to RGB
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Apply adjustments and get contour
-        adjusted, contour = self._apply_adjustments(frame_rgb)
+        # Apply adjustments
+        adjusted, _ = self._apply_adjustments(frame_rgb)
         
         # Apply calibration crop if set
         if self.calibration_area and np is not None:
@@ -536,15 +960,58 @@ class CameraScanner:
             x2, y2 = int(br[0] * w), int(br[1] * h)
             adjusted = adjusted[y1:y2, x1:x2]
         
-        # Apply perspective transform if page detected
-        if self.detect_page.get() and contour is not None and cv2 is not None and np is not None:
-            adjusted = self._apply_perspective_transform(adjusted, contour)
+        # Apply perspective transform if page detected (use stable contour)
+        if self.detect_page.get() and self._stable_contour is not None and cv2 is not None and np is not None:
+            adjusted = self._apply_perspective_transform(adjusted, self._stable_contour)
         
-        # Split in book mode
+        # Split in book mode (detect split on the final adjusted image for better accuracy)
         if self.book_mode.get() and np is not None:
-            self._save_book_pages(adjusted)
+            split = self._detect_split_on_image(adjusted)
+            self._save_book_pages(adjusted, split)
         else:
             self._save_single_page(adjusted)
+
+    def _detect_split_on_image(self, img):
+        """Detect split line on a given image (post-transform). Returns tuple(x1,y1,x2,y2) or int x."""
+        if cv2 is None or np is None:
+            return img.shape[1] // 2
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            gray = cv2.GaussianBlur(gray, (5, 5), 0)
+            edges = cv2.Canny(gray, 50, 150)
+            h, w = img.shape[:2]
+            lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=int(0.5*h), maxLineGap=20)
+            best = None
+            best_len = 0
+            if lines is not None:
+                for l in lines[:, 0, :]:
+                    x1, y1, x2, y2 = l.tolist()
+                    dx, dy = x2 - x1, y2 - y1
+                    length = (dx*dx + dy*dy) ** 0.5
+                    angle = abs(np.degrees(np.arctan2(dy, dx)))
+                    angle_from_vertical = abs(90 - angle)
+                    if angle_from_vertical > 30:
+                        continue
+                    mid_x = (x1 + x2) / 2.0
+                    if not (w * 0.25 <= mid_x <= w * 0.75):
+                        continue
+                    if length > best_len:
+                        best_len = length
+                        best = (x1, y1, x2, y2)
+            if best is not None:
+                return best
+            # Fallback to darkest vertical column
+            vertical_sum = np.sum(gray, axis=0)
+            if len(vertical_sum) > 0:
+                start = int(w * 0.3)
+                end = int(w * 0.7)
+                mid_region = vertical_sum[start:end]
+                if len(mid_region) > 0:
+                    local_min = int(np.argmin(mid_region))
+                    return start + local_min
+            return w // 2
+        except Exception:
+            return img.shape[1] // 2
     
     def _apply_perspective_transform(self, img, contour):
         """Apply perspective transform to straighten page"""
@@ -597,9 +1064,17 @@ class CameraScanner:
             filename = f"scan_{self._frame_counter:04d}.jpg"
             output_path = self.output_dir / filename
             
-            pil_img = Image.fromarray(img)
+            # Add white border if configured
+            bordered = self._add_white_border(img)
+            resized = self._resize_page(bordered)
+            pil_img = Image.fromarray(resized)
             pil_img.save(output_path, "JPEG", quality=95)
             
+            # Update gallery
+            self._gallery_order.append(filename)
+            self._save_gallery_manifest()
+            self._build_gallery()
+
             # Show confirmation
             self.canvas.create_text(
                 self.canvas.winfo_width() // 2,
@@ -613,21 +1088,41 @@ class CameraScanner:
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
     
-    def _save_book_pages(self, img):
+    def _save_book_pages(self, img, split=None):
         """Split and save left/right pages from book"""
         if Image is None or np is None:
             return
         
         try:
             h, w = img.shape[:2]
-            mid = w // 2
             
-            # Split into left and right
-            left_page = img[:, :mid]
-            right_page = img[:, mid:]
+            # Determine split position
+            use_split = split if split is not None else self._book_split_line
+            if isinstance(use_split, tuple):
+                # Exact oblique split: use half-plane masks
+                x1, y1, x2, y2 = use_split
+                # Reject degenerate lines
+                if x1 == x2 and y1 == y2:
+                    mid = w // 2
+                    left_page = img[:, :mid]
+                    right_page = img[:, mid:]
+                else:
+                    left_page, right_page = self._split_image_by_line(img, x1, y1, x2, y2)
+            else:
+                # Vertical split (int or fallback)
+                mid = int(use_split) if isinstance(use_split, int) else w // 2
+                left_page = img[:, :mid]
+                right_page = img[:, mid:]
             
             self._frame_counter += 1
             
+            # Add white borders if configured
+            left_page = self._add_white_border(left_page)
+            right_page = self._add_white_border(right_page)
+            # Apply resize if configured
+            left_page = self._resize_page(left_page)
+            right_page = self._resize_page(right_page)
+
             # Save left page
             left_filename = f"scan_{self._frame_counter:04d}_L.jpg"
             left_path = self.output_dir / left_filename
@@ -638,6 +1133,11 @@ class CameraScanner:
             right_path = self.output_dir / right_filename
             Image.fromarray(right_page).save(right_path, "JPEG", quality=95)
             
+            # Update gallery (append in order L then R)
+            self._gallery_order.extend([left_filename, right_filename])
+            self._save_gallery_manifest()
+            self._build_gallery()
+
             # Show confirmation
             self.canvas.create_text(
                 self.canvas.winfo_width() // 2,
@@ -650,6 +1150,118 @@ class CameraScanner:
             self.parent.after(2000, lambda: self.canvas.delete("toast"))
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
+
+    def _split_image_by_line(self, img, x1, y1, x2, y2):
+        """Split image into two parts along the infinite line passing through (x1,y1)-(x2,y2).
+        Returns (left_part, right_part) where 'left' has smaller centroid x.
+        Output parts are rectangular crops around the non-zero masked regions.
+        """
+        try:
+            h, w = img.shape[:2]
+            # Create coordinate grid
+            yy, xx = np.mgrid[0:h, 0:w]
+            # Signed area (point vs line): (x - x1)*(y2 - y1) - (y - y1)*(x2 - x1)
+            side = (xx - x1) * (y2 - y1) - (yy - y1) * (x2 - x1)
+            mask1 = (side <= 0).astype(np.uint8)
+            mask2 = (side > 0).astype(np.uint8)
+
+            # Fill background with white instead of black
+            part1 = np.full_like(img, 255)
+            part2 = np.full_like(img, 255)
+            part1[mask1 > 0] = img[mask1 > 0]
+            part2[mask2 > 0] = img[mask2 > 0]
+
+            def crop_nonzero(part, mask):
+                ys, xs = np.where(mask > 0)
+                if len(xs) == 0 or len(ys) == 0:
+                    return None, None
+                x_min, x_max = xs.min(), xs.max()
+                y_min, y_max = ys.min(), ys.max()
+                cropped = part[y_min:y_max+1, x_min:x_max+1]
+                cx = (x_min + x_max) / 2.0
+                return cropped, cx
+
+            c1, cx1 = crop_nonzero(part1, mask1)
+            c2, cx2 = crop_nonzero(part2, mask2)
+
+            # Fallback if one side is empty
+            if c1 is None or c2 is None:
+                mid = w // 2
+                return img[:, :mid], img[:, mid:]
+
+            # Order by centroid x (left then right)
+            if cx1 <= cx2:
+                return c1, c2
+            else:
+                return c2, c1
+        except Exception:
+            mid = img.shape[1] // 2
+            return img[:, :mid], img[:, mid:]
+
+    def _add_white_border(self, img):
+        """Add a white border around the image based on page_margin (% of max dimension)."""
+        if cv2 is None or np is None:
+            return img
+        try:
+            ratio = 0.0
+            try:
+                ratio = max(0.0, min(0.2, float(self.page_margin.get()) / 100.0))
+            except Exception:
+                ratio = 0.0
+            if ratio <= 0.0:
+                return img
+            h, w = img.shape[:2]
+            m = int(max(h, w) * ratio)
+            if m <= 0:
+                return img
+            return cv2.copyMakeBorder(img, m, m, m, m, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+        except Exception:
+            return img
+
+    def _resize_page(self, img):
+        """Resize page to target width/height if enabled. 0 means auto for that dimension."""
+        if cv2 is None or np is None:
+            return img
+        try:
+            if not self.resize_enabled.get():
+                return img
+            tw = max(0, int(self.target_width.get()))
+            th = max(0, int(self.target_height.get()))
+            h, w = img.shape[:2]
+            if tw <= 0 and th <= 0:
+                return img
+            if tw > 0 and th > 0:
+                new_w, new_h = tw, th
+            elif tw > 0:
+                # preserve aspect from width
+                new_w = tw
+                new_h = max(1, int(h * (tw / w)))
+            else:
+                # th > 0, preserve aspect from height
+                new_h = th
+                new_w = max(1, int(w * (th / h)))
+            return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        except Exception:
+            return img
+
+    def _toggle_resize_controls(self):
+        """Enable/disable resize controls based on the checkbox."""
+        try:
+            is_on = bool(self.resize_enabled.get())
+            state = 'normal' if is_on else 'disabled'
+            self.spin_width.config(state=state)
+            self.spin_height.config(state=state)
+            if is_on:
+                # If no size set yet, set default width of 1600
+                try:
+                    tw = int(self.target_width.get())
+                    th = int(self.target_height.get())
+                except Exception:
+                    tw, th = 0, 0
+                if tw == 0 and th == 0:
+                    self.target_width.set(1600)
+        except Exception:
+            pass
     
     def open_calibration(self):
         """Open calibration dialog to set capture area"""
@@ -803,7 +1415,42 @@ class CameraScanner:
     
     def cleanup(self):
         """Cleanup resources"""
+        # Persist UI state on cleanup
+        self._save_ui_prefs()
         self.close_camera()
+
+    def _save_ui_prefs(self):
+        """Save window geometry, paned sash, and UI options"""
+        try:
+            geom = None
+            sash = None
+            try:
+                geom = self.parent.geometry()
+            except Exception:
+                geom = None
+            try:
+                if hasattr(self, "paned"):
+                    sash = self.paned.sashpos(0)
+            except Exception:
+                sash = None
+            # Persist extra UI options
+            try:
+                pm = float(self.page_margin.get())
+            except Exception:
+                pm = None
+            try:
+                resize = {
+                    "enabled": bool(self.resize_enabled.get()),
+                    "width": int(self.target_width.get()),
+                    "height": int(self.target_height.get()),
+                }
+            except Exception:
+                resize = None
+            data = {"geometry": geom, "sash": sash, "page_margin": pm, "resize": resize}
+            self._prefs_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            # Ignore save errors silently
+            pass
 
 
 class ScannerWindow(tk.Toplevel):
