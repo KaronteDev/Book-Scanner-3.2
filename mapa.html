@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <style>
+        html, body { height: 100%; margin: 0; padding: 0; }
+        #map { height: 100%; width: 100%; }
+        #status { 
+            position: absolute; 
+            top: 10px; 
+            left: 50%; 
+            transform: translateX(-50%);
+            background: white; 
+            padding: 10px 20px; 
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-family: Arial;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">⏳ Cargando Leaflet...</div>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+        try {
+            document.getElementById('status').innerHTML = '🗺️ Iniciando mapa...';
+            var map = L.map('map').setView([40.4168, -3.7038], 13);
+            
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+                maxZoom: 19, 
+                attribution: '&copy; OpenStreetMap' 
+            }).addTo(map);
+            
+            var marker = L.marker([40.4168, -3.7038]).addTo(map);
+            marker.bindPopup("<b>¡Madrid!</b><br>Mapa funcionando correctamente.").openPopup();
+            
+            document.getElementById('status').innerHTML = '✅ Mapa cargado';
+            setTimeout(function() {
+                document.getElementById('status').style.display = 'none';
+            }, 2000);
+        } catch(e) {
+            document.getElementById('status').innerHTML = '❌ Error: ' + e.message;
+            document.getElementById('status').style.background = '#ff4444';
+            document.getElementById('status').style.color = 'white';
+        }
+    </script>
+</body>
+</html>

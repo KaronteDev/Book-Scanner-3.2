@@ -22,12 +22,11 @@ from typing import Optional, Dict, Any
 import io
 import threading
 import base64
-try:
-    from tkinterweb import HtmlFrame as _HtmlFrame
-    HAS_TKINTERWEB = True
-except Exception:
-    _HtmlFrame = None
-    HAS_TKINTERWEB = False
+
+# tkinterweb deshabilitado: no renderiza correctamente en Python 3.14/Windows
+# El mapa estático con click-to-select funciona perfectamente sin esta dependencia
+HAS_TKINTERWEB = False
+_HtmlFrame = None
 
 try:
     from PIL import Image, ImageTk, ImageDraw
@@ -1391,7 +1390,8 @@ class EditorArchivo(tk.Toplevel):
 
     def _fetch_static_map(self, center_lat: float, center_lon: float, marker_lat: float = None, marker_lon: float = None, zoom: int = 14, size: tuple[int,int] = (640, 400), tmp_files: list[str] | None = None):
         """Genera un mapa estático componiendo teselas de tile.openstreetmap.org.
-
+        
+        OPTIMIZADO: Cache de tiles, descarga paralela, timeout reducido.
         Nota: Requiere PIL para ensamblar las teselas. Si PIL no está disponible
         devolverá None y la UI sugerirá usar el mapa interactivo.
         """
@@ -1402,6 +1402,14 @@ class EditorArchivo(tk.Toplevel):
                 return None
 
             import math
+            import hashlib
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from pathlib import Path
+            
+            # Configuración del cache
+            cache_dir = Path("output_scan") / ".map_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            
             tile_size = 256
             width, height = size
             n = 2 ** int(zoom)  # número de teselas por eje
@@ -1438,28 +1446,73 @@ class EditorArchivo(tk.Toplevel):
             mosaic = Image.new('RGB', (mosaic_w, mosaic_h), (240, 240, 240))
 
             headers = {'User-Agent': 'GeoDocsScanner/32.3 (static-tiles)'}
+            
+            # Función para descargar o cargar del cache una tesela
+            def fetch_tile(ix: int, iy: int):
+                """Retorna (ix, iy, tile_image) o (ix, iy, None) si falla"""
+                tx = (x0_tile + ix) % n  # wrap X
+                ty = y0_tile + iy
+                if ty < 0 or ty >= n:
+                    return (ix, iy, None)
+                
+                # Nombre del archivo en cache
+                cache_file = cache_dir / f"tile_z{int(zoom)}_x{tx}_y{ty}.png"
+                
+                # Si existe en cache, cargar
+                if cache_file.exists():
+                    try:
+                        tile_img = Image.open(cache_file).convert('RGB')
+                        return (ix, iy, tile_img)
+                    except Exception:
+                        # Cache corrupto, borrar e intentar descargar
+                        try:
+                            cache_file.unlink()
+                        except:
+                            pass
+                
+                # Descargar de OSM
+                url = f"https://tile.openstreetmap.org/{int(zoom)}/{tx}/{ty}.png"
+                try:
+                    # Timeout reducido para fallos rápidos
+                    resp = requests.get(url, headers=headers, timeout=5)
+                    if resp.status_code != 200:
+                        return (ix, iy, None)
+                    
+                    tile_img = Image.open(io.BytesIO(resp.content)).convert('RGB')
+                    
+                    # Guardar en cache
+                    try:
+                        tile_img.save(cache_file, 'PNG', optimize=True)
+                    except Exception:
+                        pass  # No crítico si falla el guardado
+                    
+                    return (ix, iy, tile_img)
+                except Exception:
+                    return (ix, iy, None)
+            
+            # Descargar tiles en paralelo (máximo 6 conexiones simultáneas)
             fetched_tiles = 0
             last_err = ""
-
-            for ix in range(tiles_x):
-                for iy in range(tiles_y):
-                    tx = (x0_tile + ix) % n  # wrap X
-                    ty = y0_tile + iy
-                    if ty < 0 or ty >= n:
-                        # Fuera de rango vertical: deja fondo gris
-                        continue
-                    url = f"https://tile.openstreetmap.org/{int(zoom)}/{tx}/{ty}.png"
+            
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                # Enviar todas las tareas
+                futures = {}
+                for ix in range(tiles_x):
+                    for iy in range(tiles_y):
+                        future = executor.submit(fetch_tile, ix, iy)
+                        futures[future] = (ix, iy)
+                
+                # Procesar resultados conforme llegan
+                for future in as_completed(futures):
                     try:
-                        resp = requests.get(url, headers=headers, timeout=10)
-                        if resp.status_code != 200:
-                            last_err = f"HTTP {resp.status_code} al obtener {url}"
-                            continue
-                        tile_img = Image.open(io.BytesIO(resp.content)).convert('RGB')
-                    except Exception:
-                        last_err = f"Error {type(e).__name__}: {e} al obtener {url}"
-                        continue
-                    mosaic.paste(tile_img, (ix * tile_size, iy * tile_size))
-                    fetched_tiles += 1
+                        ix, iy, tile_img = future.result()
+                        if tile_img is not None:
+                            mosaic.paste(tile_img, (ix * tile_size, iy * tile_size))
+                            fetched_tiles += 1
+                        else:
+                            last_err = f"Tesela ({ix},{iy}) no disponible"
+                    except Exception as e:
+                        last_err = f"Error procesando tesela: {type(e).__name__}"
 
             if fetched_tiles == 0:
                 self._last_static_map_error = last_err or "No se pudieron descargar teselas"
@@ -1643,8 +1696,6 @@ class EditorArchivo(tk.Toplevel):
             result_coords['lon'] = lon
             render_map(lat, lon, lat, lon)
 
-        canvas.bind('<Button-1>', on_click)
-
         # --- Controles adicionales: teclado, drag y rueda ---
         # Panning con teclado
         def _key_left(e=None):
@@ -1664,24 +1715,47 @@ class EditorArchivo(tk.Toplevel):
         except Exception:
             pass
 
-        # Drag con ratón (pan al soltar)
-        map_state['drag_start'] = {'x': None, 'y': None}
+        # Drag con ratón (pan al soltar) - pero distinguir de clicks simples
+        map_state['drag_start'] = {'x': None, 'y': None, 'moved': False}
         def _on_drag_start(e):
             map_state['drag_start']['x'] = e.x
             map_state['drag_start']['y'] = e.y
+            map_state['drag_start']['moved'] = False
+        
+        def _on_drag_motion(e):
+            # Marcar que hubo movimiento
+            sx = map_state['drag_start'].get('x')
+            sy = map_state['drag_start'].get('y')
+            if sx is not None and sy is not None:
+                # Si se movió más de 5 píxeles, considerarlo drag
+                if abs(e.x - sx) > 5 or abs(e.y - sy) > 5:
+                    map_state['drag_start']['moved'] = True
+        
         def _on_drag_end(e):
             sx = map_state['drag_start'].get('x')
             sy = map_state['drag_start'].get('y')
+            moved = map_state['drag_start'].get('moved', False)
+            
             if sx is None or sy is None:
                 return
-            dx = int(e.x - sx)
-            dy = int(e.y - sy)
-            # Para que el arrastre sea natural: mover el mapa opuesto al drag
-            if dx != 0 or dy != 0:
-                do_pan(-dx, -dy)
+            
+            # Si fue un drag (movimiento), hacer pan
+            if moved:
+                dx = int(e.x - sx)
+                dy = int(e.y - sy)
+                # Para que el arrastre sea natural: mover el mapa opuesto al drag
+                if dx != 0 or dy != 0:
+                    do_pan(-dx, -dy)
+            else:
+                # Si no hubo movimiento, es un click: seleccionar coordenadas
+                on_click(e)
+            
             map_state['drag_start']['x'] = None
             map_state['drag_start']['y'] = None
+            map_state['drag_start']['moved'] = False
+        
         canvas.bind('<ButtonPress-1>', _on_drag_start)
+        canvas.bind('<B1-Motion>', _on_drag_motion)
         canvas.bind('<ButtonRelease-1>', _on_drag_end)
 
         # Zoom con rueda del ratón
