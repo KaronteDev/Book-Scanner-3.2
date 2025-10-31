@@ -5,10 +5,16 @@ export_view.py — Export module for academic formats
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+try:
+    from ttkbootstrap.dialogs import Messagebox
+except ImportError:
+    Messagebox = None
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.theme_titlebar import apply_titlebar_theme
+from utils import app_config
 
 from utils.db_manager import list_projects
 from modules.exporters import dc, iiif, tei, geojson
@@ -21,6 +27,21 @@ class ExportWindow:
         self.root = root
         self.root.title("GeoDocs Scanner - Exportación")
         self.root.geometry("800x600")
+        
+        # Apply title bar theme automatically from ttkbootstrap
+        apply_titlebar_theme(self.root)
+        # Restore geometry if saved
+        try:
+            geo = app_config.get_window_geometry("export")
+            if isinstance(geo, str) and geo:
+                self.root.geometry(geo)
+        except Exception:
+            pass
+        # Save on close
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        except Exception:
+            pass
         
         self.current_project = None
         self.create_ui()
@@ -183,7 +204,7 @@ class ExportWindow:
     def load_projects(self):
         """Load available projects"""
         try:
-            base_path = Path(__file__).parent.parent
+            base_path = app_config.get_root_dir()
             projects = list_projects(base_path)
             
             self.projects_data = projects
@@ -198,7 +219,17 @@ class ExportWindow:
             self.status_bar['text'] = f"Cargados {len(projects)} proyectos"
         
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}")
+            if Messagebox:
+                Messagebox.show_error(title="Error", message=f"No se pudieron cargar proyectos:\n{str(e)}", parent=self.root)
+            else:
+                messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}")
+    
+    def on_close(self):
+        try:
+            app_config.set_window_geometry("export", self.root.geometry())
+        except Exception:
+            pass
+        self.root.destroy()
     
     def on_project_selected(self, event):
         """Handle project selection"""
@@ -210,7 +241,10 @@ class ExportWindow:
     def get_export_path(self, default_name: str) -> str:
         """Get export file path from user"""
         if not self.current_project:
-            messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
+            if Messagebox:
+                Messagebox.show_warning(title="Exportar", message="Seleccione un proyecto primero", parent=self.root)
+            else:
+                messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
             return None
         
         project_dir = Path(self.current_project['carpeta_raiz'])
@@ -229,7 +263,10 @@ class ExportWindow:
     def export_dublin_core(self):
         """Export to Dublin Core format"""
         if not self.current_project:
-            messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
+            if Messagebox:
+                Messagebox.show_warning(title="Exportar", message="Seleccione un proyecto primero", parent=self.root)
+            else:
+                messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
             return
         
         # Ask for format
@@ -252,10 +289,16 @@ class ExportWindow:
             if file_path:
                 try:
                     # TODO: Implement actual export
-                    messagebox.showinfo("Exportar", f"Dublin Core exportado a:\n{file_path}")
+                    if Messagebox:
+                        Messagebox.show_info(title="Exportar", message=f"Dublin Core exportado a:\n{file_path}", parent=self.root)
+                    else:
+                        messagebox.showinfo("Exportar", f"Dublin Core exportado a:\n{file_path}")
                     self.status_bar['text'] = "Exportación Dublin Core completada"
                 except Exception as e:
-                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                    if Messagebox:
+                        Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
+                    else:
+                        messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
             
             format_dialog.destroy()
         
@@ -268,10 +311,16 @@ class ExportWindow:
         if file_path:
             try:
                 # TODO: Implement actual export
-                messagebox.showinfo("Exportar", f"IIIF Manifest exportado a:\n{file_path}")
+                if Messagebox:
+                    Messagebox.show_info(title="Exportar", message=f"IIIF Manifest exportado a:\n{file_path}", parent=self.root)
+                else:
+                    messagebox.showinfo("Exportar", f"IIIF Manifest exportado a:\n{file_path}")
                 self.status_bar['text'] = "Exportación IIIF completada"
             except Exception as e:
-                messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                if Messagebox:
+                    Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
+                else:
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
     
     def export_tei(self):
         """Export to TEI-XML"""
@@ -279,10 +328,16 @@ class ExportWindow:
         if file_path:
             try:
                 # TODO: Implement actual export
-                messagebox.showinfo("Exportar", f"TEI-XML exportado a:\n{file_path}")
+                if Messagebox:
+                    Messagebox.show_info(title="Exportar", message=f"TEI-XML exportado a:\n{file_path}", parent=self.root)
+                else:
+                    messagebox.showinfo("Exportar", f"TEI-XML exportado a:\n{file_path}")
                 self.status_bar['text'] = "Exportación TEI completada"
             except Exception as e:
-                messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                if Messagebox:
+                    Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
+                else:
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
     
     def export_geojson(self):
         """Export to GeoJSON"""
@@ -290,10 +345,16 @@ class ExportWindow:
         if file_path:
             try:
                 # TODO: Implement actual export
-                messagebox.showinfo("Exportar", f"GeoJSON exportado a:\n{file_path}")
+                if Messagebox:
+                    Messagebox.show_info(title="Exportar", message=f"GeoJSON exportado a:\n{file_path}", parent=self.root)
+                else:
+                    messagebox.showinfo("Exportar", f"GeoJSON exportado a:\n{file_path}")
                 self.status_bar['text'] = "Exportación GeoJSON completada"
             except Exception as e:
-                messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                if Messagebox:
+                    Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
+                else:
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
     
     def export_pdf(self):
         """Export to PDF/A"""
@@ -301,15 +362,24 @@ class ExportWindow:
         if file_path:
             try:
                 # TODO: Implement actual export
-                messagebox.showinfo("Exportar", f"PDF/A exportado a:\n{file_path}")
+                if Messagebox:
+                    Messagebox.show_info(title="Exportar", message=f"PDF/A exportado a:\n{file_path}", parent=self.root)
+                else:
+                    messagebox.showinfo("Exportar", f"PDF/A exportado a:\n{file_path}")
                 self.status_bar['text'] = "Exportación PDF completada"
             except Exception as e:
-                messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                if Messagebox:
+                    Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
+                else:
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
     
     def export_all(self):
         """Export to all formats"""
         if not self.current_project:
-            messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
+            if Messagebox:
+                Messagebox.show_warning(title="Exportar", message="Seleccione un proyecto primero", parent=self.root)
+            else:
+                messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
             return
         
         response = messagebox.askyesno(
@@ -321,7 +391,10 @@ class ExportWindow:
         if response:
             self.status_bar['text'] = "Exportando a todos los formatos..."
             # TODO: Implement batch export
-            messagebox.showinfo("Exportar", "Exportación múltiple en implementación")
+            if Messagebox:
+                Messagebox.show_info(title="Exportar", message="Exportación múltiple en implementación", parent=self.root)
+            else:
+                messagebox.showinfo("Exportar", "Exportación múltiple en implementación")
 
 
 if __name__ == "__main__":

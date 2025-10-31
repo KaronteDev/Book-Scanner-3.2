@@ -46,7 +46,7 @@
     "validate_output": true
   },
   "ui": {
-    "theme": "flatly",
+    "theme": "superhero",
     "font_family": "Open Sans",
     "font_size": 10,
     "show_tooltips": true,

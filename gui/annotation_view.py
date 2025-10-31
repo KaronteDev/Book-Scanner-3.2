@@ -5,6 +5,14 @@ annotation_view.py — Annotation and OCR module
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
+try:
+    from ttkbootstrap.dialogs import Messagebox
+except ImportError:
+    Messagebox = None
+try:
+    import pywinstyles
+except ImportError:
+    pywinstyles = None
 from pathlib import Path
 import sys
 import json
@@ -29,6 +37,8 @@ from PIL import Image, ImageTk
 from modules import spellcheck as sp
 from modules import glossary_manager as gm
 from modules import diff_engine as de
+from utils.theme_titlebar import apply_titlebar_theme
+from utils import app_config
 
 
 class AnnotationWindow:
@@ -39,12 +49,29 @@ class AnnotationWindow:
         self.root.title("GeoDocs Scanner - Anotación y OCR")
         self.root.geometry("1400x900")
         
+        # Apply title bar theme automatically from ttkbootstrap
+        apply_titlebar_theme(self.root)
+        # Restore geometry if saved
+        try:
+            geo = app_config.get_window_geometry("annotation")
+            if isinstance(geo, str) and geo:
+                self.root.geometry(geo)
+        except Exception:
+            pass
+        # Save on close
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        except Exception:
+            pass
+        
         self.current_project = None
         self.current_page = None
         self.tts = get_tts_manager()
         
         self.create_ui()
         self.load_projects()
+    
+    # Title bar theme handled via utils.theme_titlebar
     
     def create_ui(self):
         """Create the user interface"""
@@ -296,13 +323,19 @@ class AnnotationWindow:
     # --- Version history dialog with diff view ---
     def open_version_history(self):
         if not getattr(self, 'pages', None) or self.page_index < 0:
-            messagebox.showwarning("Historial", "No hay página seleccionada")
+            if Messagebox:
+                Messagebox.show_warning(title="Historial", message="No hay página seleccionada", parent=self.root)
+            else:
+                messagebox.showwarning("Historial", "No hay página seleccionada")
             return
         project_dir = Path(self.current_project['carpeta_raiz'])
         page = self.pages[self.page_index]
         vers = list_ocr_versions(project_dir, page['id'])
         if not vers:
-            messagebox.showinfo("Historial", "No hay versiones de OCR para esta página")
+            if Messagebox:
+                Messagebox.show_info(title="Historial", message="No hay versiones de OCR para esta página", parent=self.root)
+            else:
+                messagebox.showinfo("Historial", "No hay versiones de OCR para esta página")
             return
         top = tk.Toplevel(self.root)
         top.title("Historial de versiones · Diff")
@@ -455,9 +488,15 @@ class AnnotationWindow:
             vid = save_ocr_version(project_dir, page['id'], 'ocr_corregido', text)
             self.status_bar['text'] = f"Versión aplicada y guardada (v{vid})"
             self.refresh_ocr_versions()
-            messagebox.showinfo("Guardado", f"Corrección guardada como versión {vid}")
+            if Messagebox:
+                Messagebox.show_info(title="Guardado", message=f"Corrección guardada como versión {vid}", parent=self.root)
+            else:
+                messagebox.showinfo("Guardado", f"Corrección guardada como versión {vid}")
         else:
-            messagebox.showwarning("Guardar", "No se pudo guardar: página no válida")
+            if Messagebox:
+                Messagebox.show_warning(title="Guardar", message="No se pudo guardar: página no válida", parent=self.root)
+            else:
+                messagebox.showwarning("Guardar", "No se pudo guardar: página no válida")
 
     def _vh_apply_b_to_editor(self, top):
         """Load the selected B version into the main OCR Original editor and refresh labels/comparator."""
@@ -488,7 +527,7 @@ class AnnotationWindow:
     def load_projects(self):
         """Load available projects"""
         try:
-            base_path = Path(__file__).parent.parent
+            base_path = app_config.get_root_dir()
             projects = list_projects(base_path)
             
             self.projects_data = projects
@@ -503,7 +542,17 @@ class AnnotationWindow:
             self.status_bar['text'] = f"Cargados {len(projects)} proyectos"
         
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}")
+            if Messagebox:
+                Messagebox.show_error(title="Error", message=f"No se pudieron cargar proyectos:\n{str(e)}", parent=self.root)
+            else:
+                messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}")
+
+    def on_close(self):
+        try:
+            app_config.set_window_geometry("annotation", self.root.geometry())
+        except Exception:
+            pass
+        self.root.destroy()
     
     def on_project_selected(self, event):
         """Handle project selection"""
@@ -527,7 +576,10 @@ class AnnotationWindow:
             self.show_current_page()
             self.status_bar['text'] = f"{len(self.pages)} páginas cargadas"
         except Exception as e:
-            messagebox.showerror("Páginas", f"No se pudieron cargar: {e}")
+            if Messagebox:
+                Messagebox.show_error(title="Páginas", message=f"No se pudieron cargar: {e}", parent=self.root)
+            else:
+                messagebox.showerror("Páginas", f"No se pudieron cargar: {e}")
     
     def prev_page(self):
         """Navigate to previous page"""
@@ -578,7 +630,10 @@ class AnnotationWindow:
     def run_ocr(self):
         """Run OCR on current page and save original text version"""
         if not getattr(self, 'pages', None) or self.page_index < 0:
-            messagebox.showwarning("OCR", "No hay página seleccionada")
+            if Messagebox:
+                Messagebox.show_warning(title="OCR", message="No hay página seleccionada", parent=self.root)
+            else:
+                messagebox.showwarning("OCR", "No hay página seleccionada")
             return
         page = self.pages[self.page_index]
         img_path = page['processed_path'] or page['original_path']
@@ -589,7 +644,10 @@ class AnnotationWindow:
             self.status_bar['text'] = f"OCR en progreso ({lang})..."
             res = perform_ocr(prep, lang=lang)
             if not res.get('success'):
-                messagebox.showerror("OCR", res.get('error') or 'Fallo de OCR')
+                if Messagebox:
+                    Messagebox.show_error(title="OCR", message=res.get('error') or 'Fallo de OCR', parent=self.root)
+                else:
+                    messagebox.showerror("OCR", res.get('error') or 'Fallo de OCR')
                 return
             text = res.get('text') or ''
             conf = float(res.get('confidence') or 0)
@@ -606,7 +664,10 @@ class AnnotationWindow:
             self.comp_text.delete('1.0', tk.END)
             self.comp_text.insert('1.0', text)
         except Exception as e:
-            messagebox.showerror("OCR", str(e))
+            if Messagebox:
+                Messagebox.show_error(title="OCR", message=str(e), parent=self.root)
+            else:
+                messagebox.showerror("OCR", str(e))
     
     def play_tts(self):
         """Play text-to-speech"""
@@ -618,7 +679,10 @@ class AnnotationWindow:
             self.tts.speak(text)
             self.status_bar['text'] = "Reproduciendo texto..."
         else:
-            messagebox.showwarning("TTS", "No hay texto para reproducir")
+            if Messagebox:
+                Messagebox.show_warning(title="TTS", message="No hay texto para reproducir", parent=self.root)
+            else:
+                messagebox.showwarning("TTS", "No hay texto para reproducir")
     
     def stop_tts(self):
         """Stop text-to-speech"""
@@ -632,7 +696,10 @@ class AnnotationWindow:
         page = self.pages[self.page_index]
         text = self.text_ocr_corrected.get('1.0', tk.END).strip()
         if not text:
-            messagebox.showwarning("Guardar", "No hay texto corregido")
+            if Messagebox:
+                Messagebox.show_warning(title="Guardar", message="No hay texto corregido", parent=self.root)
+            else:
+                messagebox.showwarning("Guardar", "No hay texto corregido")
             return
         project_dir = Path(self.current_project['carpeta_raiz'])
         vid = save_ocr_version(project_dir, page['id'], 'ocr_corregido', text)
@@ -646,7 +713,10 @@ class AnnotationWindow:
         res = sp.check_text_with_custom(txt, 'es', str(project_dir) if project_dir else None)
         issues = res.get('issues') or []
         if not issues:
-            messagebox.showinfo("Ortografía", "Sin problemas detectados")
+            if Messagebox:
+                Messagebox.show_info(title="Ortografía", message="Sin problemas detectados", parent=self.root)
+            else:
+                messagebox.showinfo("Ortografía", "Sin problemas detectados")
             return
         # Simple viewer
         top = tk.Toplevel(self.root); top.title("Revisión ortográfica")
@@ -661,7 +731,10 @@ class AnnotationWindow:
     
     def new_annotation(self):
         """Create new annotation"""
-        messagebox.showinfo("Anotación", "Función de anotación en implementación")
+        if Messagebox:
+            Messagebox.show_info(title="Anotación", message="Función de anotación en implementación", parent=self.root)
+        else:
+            messagebox.showinfo("Anotación", "Función de anotación en implementación")
     
     def edit_annotation(self):
         """Edit selected annotation"""
@@ -678,7 +751,10 @@ class AnnotationWindow:
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
         if file_path:
-            messagebox.showinfo("Importar", f"Importación desde {file_path} en implementación")
+            if Messagebox:
+                Messagebox.show_info(title="Importar", message=f"Importación desde {file_path} en implementación", parent=self.root)
+            else:
+                messagebox.showinfo("Importar", f"Importación desde {file_path} en implementación")
     
     def expand_abbreviations(self):
         """Expand abbreviations/glossary terms in corrected text."""
@@ -688,12 +764,18 @@ class AnnotationWindow:
         dbp = get_project_db_path(project_dir)
         terms = gm.get_terms(str(dbp), language='es')
         if not terms:
-            messagebox.showwarning("Glosario", "No hay términos en el glosario")
+            if Messagebox:
+                Messagebox.show_warning(title="Glosario", message="No hay términos en el glosario", parent=self.root)
+            else:
+                messagebox.showwarning("Glosario", "No hay términos en el glosario")
             return
         txt = self.text_ocr_corrected.get('1.0', tk.END)
         hints = gm.apply_abbreviation_hints(txt, terms)
         if not hints:
-            messagebox.showinfo("Expandir", "No se encontraron abreviaturas para expandir")
+            if Messagebox:
+                Messagebox.show_info(title="Expandir", message="No se encontraron abreviaturas para expandir", parent=self.root)
+            else:
+                messagebox.showinfo("Expandir", "No se encontraron abreviaturas para expandir")
             return
         if not messagebox.askyesno("Expandir", f"Se encontraron {len(hints)} ocurrencias. ¿Aplicar expansión?"):
             return
