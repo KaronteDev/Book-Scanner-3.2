@@ -25,6 +25,9 @@ class ModuleSelectorApp:
         self.root.geometry("600x400")
         self.root.resizable(False, False)
         
+        # Set application icon
+        self.set_icon()
+        
         # Center window
         self.center_window()
         
@@ -42,6 +45,35 @@ class ModuleSelectorApp:
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
+    
+    def set_icon(self):
+        """Set application icon"""
+        try:
+            icon_dir = Path(__file__).resolve().parent / "assets" / "icons"
+            ico_path = icon_dir / "app.ico"
+            png_path = icon_dir / "app.png"
+            
+            # Try Windows .ico first (preferred on Windows)
+            if ico_path.exists():
+                try:
+                    self.root.iconbitmap(default=str(ico_path))
+                    return
+                except Exception:
+                    pass
+            
+            # Cross-platform PNG fallback
+            if png_path.exists():
+                try:
+                    from PIL import Image, ImageTk
+                    icon_img = ImageTk.PhotoImage(Image.open(str(png_path)))
+                    self.root.iconphoto(True, icon_img)
+                    # Keep reference to prevent garbage collection
+                    self.root._icon_img = icon_img
+                except Exception:
+                    pass
+        except Exception:
+            # Icon loading is optional; don't break app if it fails
+            pass
     
     def create_widgets(self):
         """Create the UI elements"""

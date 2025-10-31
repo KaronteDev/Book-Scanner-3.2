@@ -353,15 +353,13 @@ class CameraScanner:
         # Compute target width for thumbnails
         t_width = self._thumb_target_width()
         for idx, fn in enumerate(self._gallery_order):
-            # Highlight selection background
-            bg = "#1e1e1e" if idx != self._selected_index else "#2d3d5f"
+            # Highlight selection background in green
+            bg = "#1e1e1e" if idx != self._selected_index else "#2d5f2d"
 
             item = tk.Frame(self.gallery_view, bg=bg)
             item.pack(fill=tk.X, pady=6, padx=8)
-            item.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
-            item.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
-            item.bind('<B1-Motion>', self._on_thumb_motion)
-            item.bind('<ButtonRelease-1>', self._on_thumb_release)
+            item.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
+            item.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
 
             inner = tk.Frame(item, bg=bg)
             inner.pack(fill=tk.X, expand=True)
@@ -377,25 +375,19 @@ class CameraScanner:
                     lbl_img.pack(padx=pad_px, pady=pad_px)
                     # Bind events on both frame and label
                     for wdg in (pad_frame, lbl_img):
-                        wdg.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
-                        wdg.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
-                        wdg.bind('<B1-Motion>', self._on_thumb_motion)
-                        wdg.bind('<ButtonRelease-1>', self._on_thumb_release)
+                        wdg.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
+                        wdg.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
                 else:
                     lbl_img = tk.Label(inner, image=thumb, bg=bg)
                     lbl_img.image = thumb
                     lbl_img.pack(padx=6, pady=(6, 2), anchor='center')
-                    lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
-                    lbl_img.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
-                    lbl_img.bind('<B1-Motion>', self._on_thumb_motion)
-                    lbl_img.bind('<ButtonRelease-1>', self._on_thumb_release)
+                    lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
+                    lbl_img.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
 
             lbl_text = tk.Label(item, text=fn, bg=bg, fg='#ddd', wraplength=t_width, justify='center')
             lbl_text.pack(fill=tk.X, padx=6, pady=(0, 6))
-            lbl_text.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
-            lbl_text.bind('<Double-1>', lambda e, i=idx: self._open_preview(i))
-            lbl_text.bind('<B1-Motion>', self._on_thumb_motion)
-            lbl_text.bind('<ButtonRelease-1>', self._on_thumb_release)
+            lbl_text.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
+            lbl_text.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
 
     def _thumb_padding_px(self, t_width: int) -> int:
         """Compute pixel padding for thumbnail based on percentage control and target width."""
@@ -644,94 +636,123 @@ class CameraScanner:
         except Exception:
             pass
 
-    def _on_thumb_press(self, index: int, event):
+    def _on_thumb_click(self, index: int, event):
+        """Simple click handler - only selects, no dragging"""
+        if self._selected_index == index:
+            return  # Already selected, do nothing
+        
+        old_index = self._selected_index
         self._selected_index = index
-        self._dragging_index = index
-        # Focus gallery for Delete key handling
+        
+        # Update only the affected frames' backgrounds without rebuilding
         try:
+            frames = [w for w in self.gallery_view.children.values() if isinstance(w, tk.Frame)]
+            if old_index is not None and old_index < len(frames):
+                self._update_frame_bg(frames[old_index], "#1e1e1e")
+            if index < len(frames):
+                self._update_frame_bg(frames[index], "#2d5f2d")
             self.gallery_container.focus_set()
         except Exception:
-            pass
-        # Ensure selection highlight updates
-        self._build_gallery()
-        # Don't return 'break' so double-click can be detected by Tk
-        # return 'break'
-
-    def _on_thumb_motion(self, event):
-        if self._dragging_index is None:
-            return
+            # Fallback to full rebuild if optimization fails
+            self._build_gallery()
+    
+    def _update_frame_bg(self, frame, color):
+        """Recursively update background color of frame and its children"""
         try:
-            # Y position in canvas coordinates (accounts for scroll)
-            y_canvas = self.gallery_canvas.canvasy(event.y_root - self.gallery_canvas.winfo_rooty())
-            # Determine target index by scanning children positions
-            children = list(self.gallery_view.children.values())
-            target = self._dragging_index
-            for i, child in enumerate(children):
-                cy = child.winfo_y()
-                ch = child.winfo_height() or 200
-                if y_canvas < cy + ch / 2.0:
-                    target = i
-                    break
-            else:
-                target = len(children) - 1
-
-            target = max(0, min(target, len(self._gallery_order) - 1))
-            if target != self._dragging_index:
-                fn = self._gallery_order.pop(self._dragging_index)
-                self._gallery_order.insert(target, fn)
-                self._dragging_index = target
-                self._selected_index = target
-                self._build_gallery()
+            if hasattr(frame, 'config'):
+                frame.config(bg=color)
+            for child in frame.winfo_children():
+                if isinstance(child, (tk.Frame, tk.Label)):
+                    self._update_frame_bg(child, color)
         except Exception:
             pass
-        return 'break'
-
-    def _on_thumb_release(self, event):
-        if self._dragging_index is not None:
-            self._save_gallery_manifest()
-        self._dragging_index = None
-        return 'break'
-
-    def _on_delete_key(self, event):
-        # Only act if the gallery has focus or mouse over it
-        if self._selected_index is None:
-            return 'break'
-        if not self.gallery_container.winfo_ismapped():
-            return 'break'
-        if not messagebox.askyesno("Borrar", "¿Seguro que quieres borrar la imagen seleccionada?\nEsta acción no se puede deshacer."):
-            return 'break'
-        try:
-            fn = self._gallery_order[self._selected_index]
-            (self.output_dir / fn).unlink(missing_ok=True)
-            self._thumb_cache.pop(fn, None)
-            self._gallery_order.pop(self._selected_index)
-            if self._selected_index >= len(self._gallery_order):
-                self._selected_index = len(self._gallery_order) - 1 if self._gallery_order else None
-            self._save_gallery_manifest()
-            self._build_gallery()
-        except Exception as e:
-            messagebox.showerror("Borrado", f"No se pudo borrar: {e}")
-        return 'break'
 
     def _move_selected(self, delta: int):
-        """Move selected gallery item up/down by delta (±1)."""
+        """Move selected gallery item up/down by delta (±1) using keyboard."""
         if self._selected_index is None:
             return 'break'
         i = self._selected_index
         j = i + delta
         if j < 0 or j >= len(self._gallery_order):
             return 'break'
+        # Swap items
         self._gallery_order[i], self._gallery_order[j] = self._gallery_order[j], self._gallery_order[i]
         self._selected_index = j
-        self._dragging_index = None
         self._save_gallery_manifest()
         self._build_gallery()
+        # Scroll into view
+        self.parent.after(50, self._scroll_selected_into_view)
         try:
             self.gallery_container.focus_set()
         except Exception:
             pass
         return 'break'
-        
+    
+    def _on_delete_key(self, event):
+        """Delete key pressed in gallery - confirm and delete selected item."""
+        if self._selected_index is None:
+            return 'break'
+        fn = self._gallery_order[self._selected_index]
+        if messagebox.askyesno("Borrar miniatura", f"¿Desea borrar la miniatura '{fn}'?"):
+            try:
+                (self.output_dir / fn).unlink(missing_ok=True)
+                self._thumb_cache.pop(fn, None)
+                self._gallery_order.pop(self._selected_index)
+                if self._selected_index >= len(self._gallery_order):
+                    self._selected_index = len(self._gallery_order) - 1 if self._gallery_order else None
+                self._save_gallery_manifest()
+                self._build_gallery()
+            except Exception as e:
+                messagebox.showerror("Borrado", f"No se pudo borrar: {e}")
+        try:
+            self.gallery_container.focus_set()
+        except Exception:
+            pass
+        return 'break'
+
+    def _move_selected(self, delta: int):
+        """Move selected gallery item up/down by delta (±1) using keyboard."""
+        if self._selected_index is None:
+            return 'break'
+        i = self._selected_index
+        j = i + delta
+        if j < 0 or j >= len(self._gallery_order):
+            return 'break'
+        # Swap items
+        self._gallery_order[i], self._gallery_order[j] = self._gallery_order[j], self._gallery_order[i]
+        self._selected_index = j
+        self._save_gallery_manifest()
+        self._build_gallery()
+        # Scroll into view
+        self.parent.after(50, self._scroll_selected_into_view)
+        try:
+            self.gallery_container.focus_set()
+        except Exception:
+            pass
+        return 'break'
+
+    def _on_delete_key(self, event):
+        """Delete key pressed in gallery - confirm and delete selected item."""
+        if self._selected_index is None:
+            return 'break'
+        fn = self._gallery_order[self._selected_index]
+        if messagebox.askyesno("Borrar miniatura", f"¿Desea borrar la miniatura '{fn}'?"):
+            try:
+                (self.output_dir / fn).unlink(missing_ok=True)
+                self._thumb_cache.pop(fn, None)
+                self._gallery_order.pop(self._selected_index)
+                if self._selected_index >= len(self._gallery_order):
+                    self._selected_index = len(self._gallery_order) - 1 if self._gallery_order else None
+                self._save_gallery_manifest()
+                self._build_gallery()
+            except Exception as e:
+                messagebox.showerror("Borrado", f"No se pudo borrar: {e}")
+        try:
+            self.gallery_container.focus_set()
+        except Exception:
+            pass
+        return 'break'
+    
     def detect_cameras(self, max_index: int = 8) -> List[tuple]:
         """Detect available cameras and return list of (index, name, max_width, max_height) tuples"""
         if cv2 is None:
@@ -1795,6 +1816,9 @@ class ScannerWindow(tk.Toplevel):
         self.title("GeoDocs Scanner - Módulo de Captura")
         self.geometry("1000x850")
         
+        # Set application icon
+        self.set_icon()
+        
         # Set output directory
         if project_dir:
             self.output_dir = project_dir / "paginas"
@@ -1806,6 +1830,35 @@ class ScannerWindow(tk.Toplevel):
         
         # Handle window close
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+    
+    def set_icon(self):
+        """Set application icon"""
+        try:
+            # Navigate from gui/scanner_module.py to assets/icons
+            icon_dir = Path(__file__).resolve().parent.parent / "assets" / "icons"
+            ico_path = icon_dir / "app.ico"
+            png_path = icon_dir / "app.png"
+            
+            # Try Windows .ico first (preferred on Windows)
+            if ico_path.exists():
+                try:
+                    self.iconbitmap(default=str(ico_path))
+                    return
+                except Exception:
+                    pass
+            
+            # Cross-platform PNG fallback
+            if png_path.exists():
+                try:
+                    icon_img = ImageTk.PhotoImage(Image.open(str(png_path)))
+                    self.iconphoto(True, icon_img)
+                    # Keep reference to prevent garbage collection
+                    self._icon_img = icon_img
+                except Exception:
+                    pass
+        except Exception:
+            # Icon loading is optional; don't break app if it fails
+            pass
     
     def on_close(self):
         """Clean up before closing"""
