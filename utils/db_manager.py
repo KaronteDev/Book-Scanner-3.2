@@ -5,6 +5,7 @@ db_manager.py — Gestión de bases de datos (global y por proyecto)
 """
 import sqlite3
 import json
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -35,69 +36,165 @@ def _ensure_column(cur: sqlite3.Cursor, table: str, column: str, decl: str) -> N
 
 
 def init_global_db(base_path: Path) -> None:
-    """Initialize global database with archivos, fondos, proyectos tables"""
+    """Initialize global database with archivos, fondos, proyectos tables.
+    Estructura mejorada según estándares ISAD(G), Dublin Core y EAD."""
     db_path = base_path / "data" / GLOBAL_DB
     db_path.parent.mkdir(parents=True, exist_ok=True)
     
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     
-    # Archivos (Instituciones/Archivos históricos)
+    # Archivos (Instituciones/Repositorios) - Basado en ISAD(G) 5.3
     cur.execute("""
     CREATE TABLE IF NOT EXISTS archivos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT NOT NULL,
+        codigo_identificacion TEXT UNIQUE,
+        nombre_oficial TEXT NOT NULL,
         siglas TEXT,
-        direccion TEXT,
-        contacto TEXT,
+        tipo_institucion TEXT DEFAULT 'archivo',
+        nivel_descripcion TEXT DEFAULT 'repository',
+        direccion_completa TEXT,
+        codigo_postal TEXT,
+        ciudad TEXT,
+        provincia TEXT,
+        pais TEXT DEFAULT 'España',
+        contacto_responsable TEXT,
         email TEXT,
         telefono TEXT,
+        fax TEXT,
         url TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        coordenadas_geograficas TEXT,
+        horario_atencion TEXT,
+        condiciones_acceso TEXT,
+        notas TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
     
-    # Fondos documentales
+    # Fondos documentales - Basado en ISAD(G) y EAD
     cur.execute("""
     CREATE TABLE IF NOT EXISTS fondos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT NOT NULL,
+        codigo_referencia TEXT,
+        titulo TEXT NOT NULL,
         descripcion TEXT,
         archivo_id INTEGER,
-        periodo_inicio TEXT,
-        periodo_fin TEXT,
+        nivel_descripcion TEXT DEFAULT 'fonds',
+        volumen_soporte TEXT,
+        fecha_inicial TEXT,
+        fecha_final TEXT,
+        fecha_inicial_normalizada TEXT,
+        fecha_final_normalizada TEXT,
+        historia_institucional TEXT,
+        historia_archivistica TEXT,
+        forma_ingreso TEXT,
+        alcance_contenido TEXT,
+        valoracion_seleccion TEXT,
+        nuevos_ingresos TEXT,
+        organizacion TEXT,
+        condiciones_acceso TEXT,
+        condiciones_reproduccion TEXT,
+        lengua_documentos TEXT DEFAULT 'spa',
+        caracteristicas_fisicas TEXT,
+        instrumentos_descripcion TEXT,
+        existencia_originales TEXT,
+        existencia_copias TEXT,
+        unidades_relacionadas TEXT,
+        nota_publicaciones TEXT,
+        notas_generales TEXT,
+        nota_archivero TEXT,
+        reglas_normas TEXT DEFAULT 'ISAD(G)',
+        fecha_descripcion TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (archivo_id) REFERENCES archivos(id)
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (archivo_id) REFERENCES archivos(id) ON DELETE CASCADE
     );
     """)
 
-    # Etiquetas
+    # Etiquetas (Materias/Descriptores controlados)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS etiquetas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT NOT NULL UNIQUE,
+        termino TEXT NOT NULL UNIQUE,
+        termino_normalizado TEXT,
+        tipo_termino TEXT DEFAULT 'topic',
+        vocabulario_fuente TEXT,
+        uri TEXT,
         descripcion TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        terminos_relacionados TEXT,
+        termino_preferido_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (termino_preferido_id) REFERENCES etiquetas(id)
     );
     """)
     
-    # Proyectos de digitalización
+    # Proyectos de digitalización - Mejorado con Dublin Core y metadatos archivísticos
     cur.execute("""
     CREATE TABLE IF NOT EXISTS proyectos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo_proyecto TEXT UNIQUE,
         titulo TEXT NOT NULL,
+        titulo_alternativo TEXT,
+        codigo_referencia TEXT,
         signatura TEXT,
+        nivel_descripcion TEXT DEFAULT 'item',
         tipo_documento TEXT,
+        tipo_material TEXT,
         autor TEXT,
+        creador TEXT,
+        productor TEXT,
         tema TEXT,
+        descripcion TEXT,
+        alcance_contenido TEXT,
+        resumen TEXT,
         etiquetas TEXT,
-        fecha TEXT,
+        fecha_creacion_doc TEXT,
+        fecha_inicial TEXT,
+        fecha_final TEXT,
+        fecha_normalizadar TEXT,
+        lugar_creacion TEXT,
+        lengua TEXT DEFAULT 'spa',
+        cobertura_temporal TEXT,
+        cobertura_geografica TEXT,
+        extension TEXT,
+        formato TEXT,
+        soporte TEXT,
+        dimensiones TEXT,
+        estado_conservacion TEXT,
+        tratamiento_tecnico TEXT,
+        derechos TEXT,
+        licencia TEXT DEFAULT 'In Copyright',
+        titular_derechos TEXT,
+        condiciones_acceso TEXT,
+        condiciones_uso TEXT,
         fondo_id INTEGER,
+        proyecto_padre_id INTEGER,
         carpeta_raiz TEXT NOT NULL,
         db_path TEXT,
+        notas TEXT,
+        observaciones_tecnicas TEXT,
+        responsable_digitalizacion TEXT,
+        fecha_digitalizacion TEXT,
+        equipamiento_digitalizacion TEXT,
+        calidad_digitalizacion TEXT,
+        formato_digital TEXT,
+        resolucion_dpi INTEGER,
+        espacio_color TEXT,
+        formato_archivo TEXT,
+        tamano_archivo_mb REAL,
+        checksum TEXT,
+        software_utilizado TEXT,
+        metadatos_incrustados BOOLEAN DEFAULT 0,
+        identificador_persistente TEXT,
+        uri_canonical TEXT,
+        fuente_metadatos TEXT,
+        esquema_metadatos TEXT DEFAULT 'Dublin Core + ISAD(G)',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (fondo_id) REFERENCES fondos(id)
+        FOREIGN KEY (fondo_id) REFERENCES fondos(id) ON DELETE SET NULL,
+        FOREIGN KEY (proyecto_padre_id) REFERENCES proyectos(id) ON DELETE SET NULL
     );
     """)
     
@@ -124,9 +221,46 @@ def init_global_db(base_path: Path) -> None:
     conn.commit()
     # --- Lightweight migrations ---
     try:
-        _ensure_column(cur, 'archivos', 'siglas', 'siglas TEXT')
-    except Exception:
-        pass
+        # Migración campos legacy a nuevos campos normalizados
+        _ensure_column(cur, 'archivos', 'codigo_identificacion', 'codigo_identificacion TEXT')
+        _ensure_column(cur, 'archivos', 'nombre_oficial', 'nombre_oficial TEXT')
+        _ensure_column(cur, 'archivos', 'tipo_institucion', 'tipo_institucion TEXT DEFAULT "archivo"')
+        _ensure_column(cur, 'archivos', 'ciudad', 'ciudad TEXT')
+        _ensure_column(cur, 'archivos', 'provincia', 'provincia TEXT')
+        _ensure_column(cur, 'archivos', 'pais', 'pais TEXT DEFAULT "España"')
+        _ensure_column(cur, 'archivos', 'updated_at', 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        
+        _ensure_column(cur, 'fondos', 'codigo_referencia', 'codigo_referencia TEXT')
+        _ensure_column(cur, 'fondos', 'titulo', 'titulo TEXT')
+        _ensure_column(cur, 'fondos', 'nivel_descripcion', 'nivel_descripcion TEXT DEFAULT "fonds"')
+        _ensure_column(cur, 'fondos', 'fecha_inicial_normalizada', 'fecha_inicial_normalizada TEXT')
+        _ensure_column(cur, 'fondos', 'fecha_final_normalizada', 'fecha_final_normalizada TEXT')
+        _ensure_column(cur, 'fondos', 'lengua_documentos', 'lengua_documentos TEXT DEFAULT "spa"')
+        _ensure_column(cur, 'fondos', 'updated_at', 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        
+        _ensure_column(cur, 'etiquetas', 'termino', 'termino TEXT')
+        _ensure_column(cur, 'etiquetas', 'tipo_termino', 'tipo_termino TEXT DEFAULT "topic"')
+        _ensure_column(cur, 'etiquetas', 'vocabulario_fuente', 'vocabulario_fuente TEXT')
+        _ensure_column(cur, 'etiquetas', 'updated_at', 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        
+        _ensure_column(cur, 'proyectos', 'codigo_proyecto', 'codigo_proyecto TEXT')
+        _ensure_column(cur, 'proyectos', 'nivel_descripcion', 'nivel_descripcion TEXT DEFAULT "item"')
+        _ensure_column(cur, 'proyectos', 'lengua', 'lengua TEXT DEFAULT "spa"')
+        _ensure_column(cur, 'proyectos', 'licencia', 'licencia TEXT DEFAULT "In Copyright"')
+        _ensure_column(cur, 'proyectos', 'esquema_metadatos', 'esquema_metadatos TEXT DEFAULT "Dublin Core + ISAD(G)"')
+        _ensure_column(cur, 'proyectos', 'resolucion_dpi', 'resolucion_dpi INTEGER')
+        _ensure_column(cur, 'proyectos', 'formato_archivo', 'formato_archivo TEXT')
+        
+        # Copiar datos de campos legacy si existen
+        if _has_column(cur, 'archivos', 'nombre') and not _has_column(cur, 'archivos', 'nombre_oficial'):
+            cur.execute("UPDATE archivos SET nombre_oficial = nombre WHERE nombre_oficial IS NULL")
+        if _has_column(cur, 'fondos', 'nombre') and not _has_column(cur, 'fondos', 'titulo'):
+            cur.execute("UPDATE fondos SET titulo = nombre WHERE titulo IS NULL")
+        if _has_column(cur, 'etiquetas', 'nombre') and not _has_column(cur, 'etiquetas', 'termino'):
+            cur.execute("UPDATE etiquetas SET termino = nombre WHERE termino IS NULL")
+            
+    except Exception as e:
+        print(f"Warning durante migración de columnas: {e}")
     conn.commit()
     conn.close()
 
@@ -151,114 +285,304 @@ def get_setting(base_path: Path, key: str) -> Optional[str]:
 
 
 def init_project_db(project_path: Path) -> None:
-    """Initialize project-specific database"""
+    """Initialize project-specific database.
+    Estructura mejorada según Dublin Core, PREMIS y METS."""
     db_path = project_path / "project.db"
     
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     
-    # Document metadata
+    # Document metadata - Dublin Core extendido + METS
     cur.execute("""
     CREATE TABLE IF NOT EXISTS document (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier TEXT UNIQUE,
         title TEXT NOT NULL,
-        author TEXT,
-        date TEXT,
-        doc_type TEXT,
-        signature TEXT,
+        alternative_title TEXT,
+        creator TEXT,
+        contributor TEXT,
+        publisher TEXT,
+        date_created TEXT,
+        date_issued TEXT,
+        date_modified TEXT,
+        date_normalized TEXT,
+        type TEXT,
+        format TEXT,
+        medium TEXT,
+        extent TEXT,
+        language TEXT DEFAULT 'spa',
+        subject TEXT,
         description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        abstract TEXT,
+        table_of_contents TEXT,
+        spatial_coverage TEXT,
+        temporal_coverage TEXT,
+        rights TEXT,
+        rights_holder TEXT,
+        license TEXT,
+        access_rights TEXT,
+        provenance TEXT,
+        source TEXT,
+        relation TEXT,
+        is_version_of TEXT,
+        has_version TEXT,
+        is_part_of TEXT,
+        has_part TEXT,
+        bibliographic_citation TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
     
-    # Pages
+    # Pages/Folios - PREMIS Object Entity
     cur.execute("""
     CREATE TABLE IF NOT EXISTS page (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         document_id INTEGER,
+        identifier TEXT UNIQUE,
         seq INTEGER NOT NULL,
+        folio_number TEXT,
+        folio_recto_verso TEXT,
+        page_label TEXT,
         original_path TEXT,
         processed_path TEXT,
         thumbnail_path TEXT,
+        master_path TEXT,
+        derivative_paths TEXT,
         width INTEGER,
         height INTEGER,
         dpi INTEGER,
+        bit_depth INTEGER,
+        color_space TEXT,
+        icc_profile TEXT,
+        file_format TEXT,
+        mime_type TEXT,
+        file_size_bytes INTEGER,
+        checksum_md5 TEXT,
+        checksum_sha256 TEXT,
+        compression TEXT,
+        quality_score REAL,
+        has_text BOOLEAN DEFAULT 0,
+        has_annotations BOOLEAN DEFAULT 0,
+        preservation_level TEXT DEFAULT 'full',
+        technical_metadata TEXT,
+        capture_device TEXT,
+        capture_software TEXT,
+        capture_settings TEXT,
         captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (document_id) REFERENCES document(id)
+        captured_by TEXT,
+        processing_date TIMESTAMP,
+        processing_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (document_id) REFERENCES document(id) ON DELETE CASCADE
     );
     """)
     
-    # OCR versions (original + corrections)
+    # OCR versions (original + corrections) - PREMIS Representation
     cur.execute("""
     CREATE TABLE IF NOT EXISTS ocr_versions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         page_id INTEGER NOT NULL,
+        identifier TEXT UNIQUE,
         version_type TEXT NOT NULL,
+        version_number INTEGER DEFAULT 1,
         text_content TEXT,
         html_content TEXT,
+        alto_xml TEXT,
+        hocr TEXT,
         language TEXT DEFAULT 'spa',
+        ocr_engine TEXT,
+        ocr_engine_version TEXT,
         confidence REAL,
+        word_count INTEGER,
+        character_count INTEGER,
+        quality_metrics TEXT,
+        processing_time REAL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_by TEXT,
-        FOREIGN KEY (page_id) REFERENCES page(id)
+        role TEXT,
+        provenance_note TEXT,
+        is_current BOOLEAN DEFAULT 1,
+        supersedes_version_id INTEGER,
+        FOREIGN KEY (page_id) REFERENCES page(id) ON DELETE CASCADE,
+        FOREIGN KEY (supersedes_version_id) REFERENCES ocr_versions(id)
     );
     """)
     
-    # Glossary/abbreviations
+    # Glossary/abbreviations - Vocabulary control
     cur.execute("""
     CREATE TABLE IF NOT EXISTS glossary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         scope TEXT DEFAULT 'project',
         name TEXT NOT NULL,
         language TEXT DEFAULT 'es',
+        vocabulary_source TEXT,
+        authority_file TEXT,
         terms_json TEXT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by TEXT
     );
     """)
     
-    # Annotations
+    # Annotations - W3C Web Annotation Data Model
     cur.execute("""
     CREATE TABLE IF NOT EXISTS annotations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        annotation_id TEXT UNIQUE,
         page_id INTEGER,
         annotation_type TEXT,
-        target_selector TEXT,
-        body_text TEXT,
-        body_html TEXT,
-        creator TEXT,
         motivation TEXT,
+        target_source TEXT,
+        target_selector TEXT,
+        target_scope TEXT,
+        body_type TEXT,
+        body_value TEXT,
+        body_format TEXT,
+        body_language TEXT DEFAULT 'es',
+        body_html TEXT,
+        body_purpose TEXT,
+        creator TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        modified_at TIMESTAMP,
+        generator TEXT,
+        audience TEXT,
+        rights TEXT,
+        canonical TEXT,
+        via TEXT,
         tags TEXT,
         geo_lat REAL,
         geo_lon REAL,
         geo_place TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (page_id) REFERENCES page(id)
+        geo_geonames_id TEXT,
+        time_start TEXT,
+        time_end TEXT,
+        FOREIGN KEY (page_id) REFERENCES page(id) ON DELETE CASCADE
     );
     """)
     
-    # Linked entities (persons, places, etc.)
+    # Linked entities (persons, places, organizations, concepts) - VIAF/GND/Getty compatible
     cur.execute("""
     CREATE TABLE IF NOT EXISTS entities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier TEXT UNIQUE,
         entity_type TEXT NOT NULL,
         name TEXT NOT NULL,
         normalized_name TEXT,
+        preferred_label TEXT,
+        alternative_labels TEXT,
         uri TEXT,
+        authority_source TEXT,
+        authority_id TEXT,
+        viaf_id TEXT,
+        gnd_id TEXT,
+        loc_id TEXT,
+        bnf_id TEXT,
+        getty_id TEXT,
+        wikidata_id TEXT,
         geodocs_id INTEGER,
         description TEXT,
+        biographical_note TEXT,
+        birth_date TEXT,
+        death_date TEXT,
+        birth_place TEXT,
+        death_place TEXT,
+        occupation TEXT,
+        nationality TEXT,
+        related_entities TEXT,
         metadata_json TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by TEXT
     );
     """)
     
-    # Entity-annotation linking
+    # Entity-annotation linking (N:M)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS annotation_entities (
         annotation_id INTEGER,
         entity_id INTEGER,
-        FOREIGN KEY (annotation_id) REFERENCES annotations(id),
-        FOREIGN KEY (entity_id) REFERENCES entities(id),
+        relationship_type TEXT,
+        confidence REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE,
+        FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE,
         PRIMARY KEY (annotation_id, entity_id)
+    );
+    """)
+    
+    # Events (acontecimientos históricos mencionados)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier TEXT UNIQUE,
+        name TEXT NOT NULL,
+        event_type TEXT,
+        date_start TEXT,
+        date_end TEXT,
+        date_normalized TEXT,
+        location TEXT,
+        geo_lat REAL,
+        geo_lon REAL,
+        description TEXT,
+        participants TEXT,
+        related_entities TEXT,
+        authority_source TEXT,
+        authority_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    
+    # Provenance/Custody history - PREMIS Event Entity
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS provenance_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        object_type TEXT NOT NULL,
+        object_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        event_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        event_detail TEXT,
+        event_outcome TEXT,
+        agent_name TEXT,
+        agent_type TEXT,
+        agent_identifier TEXT,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    
+    # Quality control checks
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS quality_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_id INTEGER,
+        check_type TEXT NOT NULL,
+        check_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status TEXT,
+        score REAL,
+        issues_found TEXT,
+        recommendations TEXT,
+        checked_by TEXT,
+        FOREIGN KEY (page_id) REFERENCES page(id) ON DELETE CASCADE
+    );
+    """)
+    
+    # Exports/Deliverables tracking
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS exports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        export_format TEXT NOT NULL,
+        export_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        output_path TEXT,
+        file_size_bytes INTEGER,
+        checksum TEXT,
+        include_metadata BOOLEAN DEFAULT 1,
+        validation_status TEXT,
+        validation_report TEXT,
+        created_by TEXT,
+        notes TEXT
     );
     """)
     
@@ -589,16 +913,39 @@ def list_projects(base_path: Path) -> List[Dict[str, Any]]:
 def list_archivos(base_path: Path) -> List[Dict[str, Any]]:
     db_path = base_path / "data" / GLOBAL_DB
     conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM archivos ORDER BY nombre").fetchall()
-    conn.close(); return [dict(r) for r in rows]
+    rows = conn.execute("SELECT * FROM archivos ORDER BY COALESCE(nombre_oficial, nombre) COLLATE NOCASE").fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Compatibilidad con código legacy
+        if 'nombre_oficial' in d and d['nombre_oficial']:
+            d['nombre'] = d['nombre_oficial']
+        elif 'nombre' not in d and 'nombre_oficial' in d:
+            d['nombre'] = d['nombre_oficial']
+        result.append(d)
+    return result
 
 
-def create_archivo(base_path: Path, nombre: str, siglas: str = None, direccion: str = None, contacto: str = None, email: str = None, telefono: str = None, url: str = None) -> int:
+def create_archivo(base_path: Path, nombre: str, siglas: str = None, direccion: str = None, contacto: str = None, email: str = None, telefono: str = None, url: str = None, **kwargs) -> int:
     db_path = base_path / "data" / GLOBAL_DB
     conn = sqlite3.connect(db_path); cur = conn.cursor()
+    
+    # Generar código de identificación único
+    codigo = kwargs.get('codigo_identificacion') or f"ARC{int(time.time())}"
+    siglas_final = siglas or _infer_siglas(nombre)
+    
     cur.execute(
-        "INSERT INTO archivos(nombre, siglas, direccion, contacto, email, telefono, url) VALUES(?,?,?,?,?,?,?)",
-        (nombre, (siglas or _infer_siglas(nombre)), direccion, contacto, email, telefono, url)
+        """INSERT INTO archivos(
+            codigo_identificacion, nombre_oficial, siglas, tipo_institucion,
+            direccion_completa, ciudad, provincia, pais,
+            contacto_responsable, email, telefono, url, notas
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            codigo, nombre, siglas_final, kwargs.get('tipo_institucion', 'archivo'),
+            direccion, kwargs.get('ciudad'), kwargs.get('provincia'), kwargs.get('pais', 'España'),
+            contacto, email, telefono, url, kwargs.get('notas')
+        )
     )
     rid = cur.lastrowid; conn.commit(); conn.close(); return rid
 
@@ -608,11 +955,26 @@ def update_archivo(base_path: Path, archivo_id: int, **kwargs) -> bool:
     conn = sqlite3.connect(db_path); cur = conn.cursor()
     fields = []
     values = []
-    for k in ("nombre","siglas","direccion","contacto","email","telefono","url"):
+    
+    # Mapear campos legacy a nuevos campos
+    field_mapping = {
+        'nombre': 'nombre_oficial',
+        'direccion': 'direccion_completa',
+        'contacto': 'contacto_responsable'
+    }
+    
+    for k in ("nombre", "nombre_oficial", "siglas", "codigo_identificacion", "tipo_institucion",
+              "direccion", "direccion_completa", "ciudad", "provincia", "pais",
+              "contacto", "contacto_responsable", "email", "telefono", "url", "notas"):
         if k in kwargs:
-            fields.append(f"{k}=?"); values.append(kwargs[k])
+            field_name = field_mapping.get(k, k)
+            fields.append(f"{field_name}=?")
+            values.append(kwargs[k])
+    
     if not fields:
         conn.close(); return False
+    
+    fields.append("updated_at=CURRENT_TIMESTAMP")
     values.append(archivo_id)
     cur.execute(f"UPDATE archivos SET {', '.join(fields)} WHERE id=?", values)
     conn.commit(); conn.close(); return True
@@ -629,19 +991,55 @@ def list_fondos(base_path: Path) -> List[Dict[str, Any]]:
     db_path = base_path / "data" / GLOBAL_DB
     conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
     rows = conn.execute("""
-        SELECT f.*, a.nombre as archivo_nombre, a.siglas as archivo_siglas
-        FROM fondos f LEFT JOIN archivos a ON a.id=f.archivo_id
-        ORDER BY f.nombre
+        SELECT f.*, 
+               COALESCE(a.nombre_oficial, a.nombre) as archivo_nombre, 
+               a.siglas as archivo_siglas
+        FROM fondos f 
+        LEFT JOIN archivos a ON a.id=f.archivo_id
+        ORDER BY COALESCE(f.titulo, f.nombre) COLLATE NOCASE
     """).fetchall()
-    conn.close(); return [dict(r) for r in rows]
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Compatibilidad con código legacy
+        if 'titulo' in d and d['titulo']:
+            d['nombre'] = d['titulo']
+        elif 'nombre' not in d and 'titulo' in d:
+            d['nombre'] = d['titulo']
+        # Mapear fechas legacy
+        if 'fecha_inicial' in d:
+            d['periodo_inicio'] = d['fecha_inicial']
+        if 'fecha_final' in d:
+            d['periodo_fin'] = d['fecha_final']
+        result.append(d)
+    return result
 
 
-def create_fondo(base_path: Path, nombre: str, archivo_id: int = None, descripcion: str = None, periodo_inicio: str = None, periodo_fin: str = None) -> int:
+def create_fondo(base_path: Path, nombre: str, archivo_id: int = None, descripcion: str = None, periodo_inicio: str = None, periodo_fin: str = None, **kwargs) -> int:
     db_path = base_path / "data" / GLOBAL_DB
     conn = sqlite3.connect(db_path); cur = conn.cursor()
+    
+    # Generar código de referencia
+    codigo_ref = kwargs.get('codigo_referencia')
+    if not codigo_ref and archivo_id:
+        row = cur.execute("SELECT siglas FROM archivos WHERE id=?", (archivo_id,)).fetchone()
+        siglas = (row[0] if row else 'FONDO').upper()
+        codigo_ref = f"{siglas}/F{int(time.time() % 100000)}"
+    
     cur.execute(
-        "INSERT INTO fondos(nombre, descripcion, archivo_id, periodo_inicio, periodo_fin) VALUES(?,?,?,?,?)",
-        (nombre, descripcion, archivo_id, periodo_inicio, periodo_fin)
+        """INSERT INTO fondos(
+            codigo_referencia, titulo, descripcion, archivo_id,
+            nivel_descripcion, fecha_inicial, fecha_final,
+            alcance_contenido, lengua_documentos
+        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (
+            codigo_ref, nombre, descripcion, archivo_id,
+            kwargs.get('nivel_descripcion', 'fonds'),
+            periodo_inicio, periodo_fin,
+            kwargs.get('alcance_contenido'),
+            kwargs.get('lengua_documentos', 'spa')
+        )
     )
     rid = cur.lastrowid; conn.commit(); conn.close(); return rid
 
@@ -671,14 +1069,28 @@ def delete_fondo(base_path: Path, fondo_id: int) -> bool:
 def list_etiquetas(base_path: Path) -> List[Dict[str, Any]]:
     db_path = base_path / "data" / GLOBAL_DB
     conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM etiquetas ORDER BY nombre").fetchall()
-    conn.close(); return [dict(r) for r in rows]
+    rows = conn.execute("SELECT * FROM etiquetas ORDER BY COALESCE(termino, nombre) COLLATE NOCASE").fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Compatibilidad con código legacy
+        if 'termino' in d and d['termino']:
+            d['nombre'] = d['termino']
+        elif 'nombre' not in d and 'termino' in d:
+            d['nombre'] = d['termino']
+        result.append(d)
+    return result
 
 
-def create_etiqueta(base_path: Path, nombre: str, descripcion: str = None) -> int:
+def create_etiqueta(base_path: Path, nombre: str, descripcion: str = None, **kwargs) -> int:
     db_path = base_path / "data" / GLOBAL_DB
     conn = sqlite3.connect(db_path); cur = conn.cursor()
-    cur.execute("INSERT INTO etiquetas(nombre, descripcion) VALUES(?,?)", (nombre, descripcion))
+    cur.execute(
+        """INSERT INTO etiquetas(termino, descripcion, tipo_termino, vocabulario_fuente) 
+           VALUES(?,?,?,?)""",
+        (nombre, descripcion, kwargs.get('tipo_termino', 'topic'), kwargs.get('vocabulario_fuente'))
+    )
     rid = cur.lastrowid; conn.commit(); conn.close(); return rid
 
 
@@ -687,11 +1099,19 @@ def update_etiqueta(base_path: Path, etiqueta_id: int, **kwargs) -> bool:
     conn = sqlite3.connect(db_path); cur = conn.cursor()
     fields = []
     values = []
-    for k in ("nombre","descripcion"):
+    
+    # Mapear campo legacy
+    if 'nombre' in kwargs:
+        kwargs['termino'] = kwargs['nombre']
+    
+    for k in ("termino", "descripcion", "tipo_termino", "vocabulario_fuente"):
         if k in kwargs:
             fields.append(f"{k}=?"); values.append(kwargs[k])
+    
     if not fields:
         conn.close(); return False
+    
+    fields.append("updated_at=CURRENT_TIMESTAMP")
     values.append(etiqueta_id)
     cur.execute(f"UPDATE etiquetas SET {', '.join(fields)} WHERE id=?", values)
     conn.commit(); conn.close(); return True
