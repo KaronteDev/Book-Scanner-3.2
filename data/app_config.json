@@ -12,7 +12,10 @@
     "exports_dir": "exports"
   },
   "camera": {
-    "default_resolution": [1920, 1080],
+    "default_resolution": [
+      1920,
+      1080
+    ],
     "capture_quality": 95,
     "auto_focus": true,
     "default_format": "A4"
@@ -20,7 +23,11 @@
   "ocr": {
     "default_language": "spa",
     "psm_mode": 3,
-    "languages": ["spa", "lat", "eng"],
+    "languages": [
+      "spa",
+      "lat",
+      "eng"
+    ],
     "preprocess": true,
     "auto_rotate": true,
     "denoise": true,
@@ -40,7 +47,13 @@
     "split_double_page": false
   },
   "export": {
-    "formats": ["dc", "iiif", "tei", "geojson", "pdf"],
+    "formats": [
+      "dc",
+      "iiif",
+      "tei",
+      "geojson",
+      "pdf"
+    ],
     "pdf_quality": 95,
     "embed_metadata": true,
     "validate_output": true
@@ -50,7 +63,10 @@
     "font_family": "Open Sans",
     "font_size": 10,
     "show_tooltips": true,
-    "confirm_actions": true
+    "confirm_actions": true,
+    "window_geometry": {
+      "main": "600x550+1420+445"
+    }
   },
   "api": {
     "config_file": "data/rest_config.json",

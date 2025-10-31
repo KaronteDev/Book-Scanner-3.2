@@ -15,6 +15,8 @@ except ImportError:
     ttkb = None
     Messagebox = None
 from pathlib import Path
+import socket
+import tempfile
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -27,6 +29,22 @@ except Exception:
 
 APP_NAME = "GeoDocs Scanner"
 APP_VERSION = "v32.3 PLUS"
+LOCK_SOCKET = None  # Variable global para mantener el socket activo
+
+
+def check_single_instance():
+    """Verifica que solo haya una instancia de la aplicación ejecutándose"""
+    global LOCK_SOCKET
+    try:
+        # Crear un socket en un puerto específico
+        LOCK_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Intentar vincular al puerto local
+        LOCK_SOCKET.bind(('127.0.0.1', 47200))  # Puerto específico para esta app
+        return True
+    except socket.error:
+        # El puerto ya está en uso, otra instancia está ejecutándose
+        return False
+
 
 class ModuleSelectorApp:
     """Pantalla inicial para seleccionar el módulo de trabajo"""
@@ -95,110 +113,167 @@ class ModuleSelectorApp:
     def create_widgets(self):
         """Create the UI elements"""
         # Header
-        header_frame = ttkb.Frame(self.root, padding=20)
+        header_frame = (ttkb.Frame(self.root, padding=20) if ttkb else tk.Frame(self.root, padx=20, pady=20))
         header_frame.pack(fill=tk.X)
 
-        title_label = ttkb.Label(
+        title_label = (ttkb.Label(
             header_frame,
             text=f"{APP_NAME} {APP_VERSION}",
             font=("Open Sans", 18, "bold")
-        )
+        ) if ttkb else tk.Label(
+            header_frame,
+            text=f"{APP_NAME} {APP_VERSION}",
+            font=("Open Sans", 18, "bold")
+        ))
         title_label.pack()
 
-        subtitle_label = ttkb.Label(
+        subtitle_label = (ttkb.Label(
             header_frame,
             text="Sistema Avanzado de Digitalización y Anotación Documental",
             font=("Open Sans", 10)
-        )
+        ) if ttkb else tk.Label(
+            header_frame,
+            text="Sistema Avanzado de Digitalización y Anotación Documental",
+            font=("Open Sans", 10)
+        ))
         subtitle_label.pack()
 
         # Separator
-        ttkb.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=20, pady=10)
+        if ttkb:
+            ttkb.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=20, pady=10)
+        else:
+            tk.Frame(self.root, height=2, bg="gray").pack(fill=tk.X, padx=20, pady=10)
 
         # Module selection frame
-        modules_frame = ttkb.Frame(self.root, padding=20)
+        modules_frame = (ttkb.Frame(self.root, padding=20) if ttkb else tk.Frame(self.root, padx=20, pady=20))
         modules_frame.pack(fill=tk.BOTH, expand=True)
 
-        modules_label = ttkb.Label(
+        modules_label = (ttkb.Label(
             modules_frame,
             text="Seleccione un módulo:",
             font=("Open Sans", 12, "bold")
-        )
+        ) if ttkb else tk.Label(
+            modules_frame,
+            text="Seleccione un módulo:",
+            font=("Open Sans", 12, "bold")
+        ))
         modules_label.pack(pady=(0, 15))
 
         # Module buttons
-        btn_scanner = ttkb.Button(
+        btn_scanner = (ttkb.Button(
             modules_frame,
             text="📸 Módulo de Escaneo",
             command=self.open_scanner,
             width=30,
             bootstyle="primary"
-        )
+        ) if ttkb else tk.Button(
+            modules_frame,
+            text="📸 Módulo de Escaneo",
+            command=self.open_scanner,
+            width=30
+        ))
         btn_scanner.pack(pady=5)
 
-        ttkb.Label(
+        (ttkb.Label(
             modules_frame,
             text="Captura y procesamiento de imágenes",
             font=("Open Sans", 8),
             foreground="gray"
-        ).pack()
+        ) if ttkb else tk.Label(
+            modules_frame,
+            text="Captura y procesamiento de imágenes",
+            font=("Open Sans", 8),
+            foreground="gray"
+        )).pack()
 
-        btn_annotation = ttkb.Button(
+        btn_annotation = (ttkb.Button(
             modules_frame,
             text="📝 Módulo de Anotación y OCR",
             command=self.open_annotation,
             width=30,
             bootstyle="info"
-        )
+        ) if ttkb else tk.Button(
+            modules_frame,
+            text="📝 Módulo de Anotación y OCR",
+            command=self.open_annotation,
+            width=30
+        ))
         btn_annotation.pack(pady=(15, 5))
 
-        ttkb.Label(
+        (ttkb.Label(
             modules_frame,
             text="Transcripción, corrección y anotación académica",
             font=("Open Sans", 8),
             foreground="gray"
-        ).pack()
+        ) if ttkb else tk.Label(
+            modules_frame,
+            text="Transcripción, corrección y anotación académica",
+            font=("Open Sans", 8),
+            foreground="gray"
+        )).pack()
 
-        btn_export = ttkb.Button(
+        btn_export = (ttkb.Button(
             modules_frame,
             text="📦 Módulo de Exportación",
             command=self.open_export,
             width=30,
             bootstyle="success"
-        )
+        ) if ttkb else tk.Button(
+            modules_frame,
+            text="📦 Módulo de Exportación",
+            command=self.open_export,
+            width=30
+        ))
         btn_export.pack(pady=(15, 5))
 
-        ttkb.Label(
+        (ttkb.Label(
             modules_frame,
             text="Dublin Core, IIIF, TEI-XML, GeoJSON",
             font=("Open Sans", 8),
             foreground="gray"
-        ).pack()
+        ) if ttkb else tk.Label(
+            modules_frame,
+            text="Dublin Core, IIIF, TEI-XML, GeoJSON",
+            font=("Open Sans", 8),
+            foreground="gray"
+        )).pack()
 
         # Footer
-        footer_frame = ttkb.Frame(self.root, padding=10)
+        footer_frame = (ttkb.Frame(self.root, padding=10) if ttkb else tk.Frame(self.root, padx=10, pady=10))
         footer_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-        ttkb.Button(
+        (ttkb.Button(
             footer_frame,
             text="⚙️ Configuración",
             command=self.open_settings,
             bootstyle="secondary"
-        ).pack(side=tk.LEFT, padx=5)
+        ) if ttkb else tk.Button(
+            footer_frame,
+            text="⚙️ Configuración",
+            command=self.open_settings
+        )).pack(side=tk.LEFT, padx=5)
 
-        ttkb.Button(
+        (ttkb.Button(
             footer_frame,
             text="❓ Ayuda",
             command=self.open_help,
             bootstyle="secondary"
-        ).pack(side=tk.LEFT, padx=5)
+        ) if ttkb else tk.Button(
+            footer_frame,
+            text="❓ Ayuda",
+            command=self.open_help
+        )).pack(side=tk.LEFT, padx=5)
 
-        ttkb.Button(
+        (ttkb.Button(
             footer_frame,
             text="Salir",
             command=self.root.quit,
             bootstyle="danger"
-        ).pack(side=tk.RIGHT, padx=5)
+        ) if ttkb else tk.Button(
+            footer_frame,
+            text="Salir",
+            command=self.root.quit
+        )).pack(side=tk.RIGHT, padx=5)
     
     def init_database(self):
         """Initialize global database"""
@@ -331,6 +406,19 @@ class ModuleSelectorApp:
 
 def main():
     """Main entry point"""
+    # Verificar que solo haya una instancia ejecutándose
+    if not check_single_instance():
+        # Mostrar mensaje de error
+        root_temp = tk.Tk()
+        root_temp.withdraw()  # Ocultar ventana principal
+        messagebox.showerror(
+            "Instancia ya en ejecución",
+            f"{APP_NAME} ya está ejecutándose.\n\nSolo puede haber una instancia activa a la vez.",
+            parent=root_temp
+        )
+        root_temp.destroy()
+        sys.exit(1)
+    
     if ttkb:
         # Lee el tema desde la configuración con reserva a 'superhero'
         chosen = app_config.get_theme("superhero")
@@ -366,10 +454,17 @@ def main():
     root.bind('<Control-q>', lambda e: root.quit())
     # Guardar geometría al cerrar
     def _on_close():
+        global LOCK_SOCKET
         try:
             app_config.set_window_geometry("main", root.geometry())
         except Exception:
             pass
+        # Cerrar el socket de bloqueo
+        if LOCK_SOCKET:
+            try:
+                LOCK_SOCKET.close()
+            except Exception:
+                pass
         root.destroy()
     root.protocol("WM_DELETE_WINDOW", _on_close)
     root.mainloop()
