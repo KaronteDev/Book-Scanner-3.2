@@ -265,14 +265,34 @@ class ModuleSelectorApp:
     def open_settings(self):
         """Open settings dialog with live preview and persistence"""
         if open_settings_dialog and ttkb:
-            def on_applied(theme_name, root_dir_path):
+            def on_applied(theme_name, root_dir_path, apply_all=False):
                 # Refrescar barra de título de ventanas hijas abiertas
                 try:
-                    for child in self.root.winfo_children():
-                        try:
-                            apply_titlebar_theme(child)
-                        except Exception:
-                            continue
+                    if apply_all:
+                        # Walk through all children and nested toplevels
+                        queue = [self.root]
+                        seen = set()
+                        while queue:
+                            win = queue.pop(0)
+                            if id(win) in seen:
+                                continue
+                            seen.add(id(win))
+                            try:
+                                apply_titlebar_theme(win)
+                            except Exception:
+                                pass
+                            try:
+                                for ch in win.winfo_children():
+                                    if isinstance(ch, (tk.Toplevel,)):
+                                        queue.append(ch)
+                            except Exception:
+                                pass
+                    else:
+                        for child in self.root.winfo_children():
+                            try:
+                                apply_titlebar_theme(child)
+                            except Exception:
+                                continue
                 except Exception:
                     pass
             open_settings_dialog(self.root, on_applied=on_applied)

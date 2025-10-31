@@ -1,4 +1,4 @@
-Falta preguntar si puede usar ttkbootstrap
+- Hecho. Falta preguntar si se puede usar ttkbootstrap tema superhero
 
 Metadatos y proyectos
 

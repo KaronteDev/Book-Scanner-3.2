@@ -21,6 +21,7 @@ from utils.db_manager import (
     ensure_project_dirs,
     sync_pages_from_folder,
 )
+from utils import app_config
 
 
 class ScannerWindow:
@@ -123,7 +124,7 @@ class ScannerWindow:
     # --- Project management ---
     def reload_projects(self):
         try:
-            base_path = Path(__file__).parent.parent
+            base_path = app_config.get_root_dir()
             projects = list_projects(base_path)
             self._projects = projects
             names = [p['titulo'] for p in projects]
@@ -150,7 +151,7 @@ class ScannerWindow:
         ttk.Entry(frm, textvariable=var_title, width=40).grid(row=0, column=1, sticky="we")
 
         ttk.Label(frm, text="Carpeta raíz:").grid(row=1, column=0, sticky="w", pady=(8,0))
-        var_dir = tk.StringVar(value=str(Path(__file__).parent.parent / "proyectos" / "Proyecto_nuevo"))
+        var_dir = tk.StringVar(value=str(app_config.resolve_path("projects_dir", ensure=True) / "Proyecto_nuevo"))
         e_dir = ttk.Entry(frm, textvariable=var_dir, width=40)
         e_dir.grid(row=1, column=1, sticky="we", pady=(8,0))
         def pick_dir():
@@ -169,7 +170,7 @@ class ScannerWindow:
 
         btns = ttk.Frame(frm); btns.grid(row=6, column=0, columnspan=3, sticky="e", pady=12)
         def do_create():
-            base = Path(__file__).parent.parent
+            base = app_config.get_root_dir()
             title = var_title.get().strip() or "Proyecto_sin_nombre"
             root_dir = Path(var_dir.get().strip())
             ensure_project_dirs(root_dir)

@@ -22,9 +22,8 @@ from utils import app_config
 
 class SettingsDialog(tk.Toplevel):
     def __init__(self, parent: tk.Tk, on_applied=None):
-        # Usamos Toplevel de ttkbootstrap si está disponible para heredar estilo
-        toplevel_cls = ttkb.Toplevel if ttkb else tk.Toplevel
-        super().__init__(parent) if toplevel_cls is tk.Toplevel else toplevel_cls.__init__(self, parent)
+        # Creamos siempre un Toplevel estándar; el estilo ttkbootstrap se aplica globalmente
+        super().__init__(parent)
 
         self.parent = parent
         self.on_applied = on_applied
