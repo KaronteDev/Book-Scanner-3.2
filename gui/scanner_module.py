@@ -157,6 +157,10 @@ class CameraScanner:
         self.gallery_canvas.create_window((0, 0), window=self.gallery_view, anchor="nw")
         self.gallery_canvas.configure(yscrollcommand=self.gallery_scroll.set)
         self.gallery_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Mouse wheel scrolling
+        self.gallery_canvas.bind('<MouseWheel>', self._on_gallery_mousewheel)
+        self.gallery_canvas.bind('<Button-4>', lambda e: self._gallery_scroll(-1))  # Linux scroll up
+        self.gallery_canvas.bind('<Button-5>', lambda e: self._gallery_scroll(1))   # Linux scroll down
         self.gallery_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         # State for gallery
@@ -297,6 +301,7 @@ class CameraScanner:
             item = tk.Frame(self.gallery_view, bg=bg)
             item.pack(fill=tk.X, pady=6, padx=8)
             item.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+            item.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
             item.bind('<B1-Motion>', self._on_thumb_motion)
             item.bind('<ButtonRelease-1>', self._on_thumb_release)
 
@@ -309,14 +314,197 @@ class CameraScanner:
                 lbl_img.image = thumb
                 lbl_img.pack(padx=6, pady=(6, 2))
                 lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+                lbl_img.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
                 lbl_img.bind('<B1-Motion>', self._on_thumb_motion)
                 lbl_img.bind('<ButtonRelease-1>', self._on_thumb_release)
 
             lbl_text = tk.Label(item, text=fn, bg=bg, fg='#ddd', wraplength=180, justify='center')
             lbl_text.pack(fill=tk.X, padx=6, pady=(0, 6))
             lbl_text.bind('<Button-1>', lambda e, i=idx: self._on_thumb_press(i, e))
+            lbl_text.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
             lbl_text.bind('<B1-Motion>', self._on_thumb_motion)
             lbl_text.bind('<ButtonRelease-1>', self._on_thumb_release)
+
+    def _on_gallery_mousewheel(self, event):
+        """Scroll gallery canvas with mouse wheel (Windows/macOS)."""
+        try:
+            delta = event.delta
+            if delta == 0:
+                return 'break'
+            step = -1 if delta > 0 else 1
+            self.gallery_canvas.yview_scroll(step, 'units')
+        except Exception:
+            pass
+        return 'break'
+
+    def _gallery_scroll(self, direction: int):
+        """Scroll helper for Linux button-4/5 events."""
+        try:
+            self.gallery_canvas.yview_scroll(direction, 'units')
+        except Exception:
+            pass
+        return 'break'
+
+    def _scroll_selected_into_view(self):
+        """Ensure the selected gallery item is visible by adjusting the canvas yview."""
+        try:
+            if self._selected_index is None:
+                return
+            children = list(self.gallery_view.children.values())
+            if not (0 <= self._selected_index < len(children)):
+                return
+            target = children[self._selected_index]
+            # Compute target y within the scroll region
+            self.gallery_view.update_idletasks()
+            bbox = self.gallery_canvas.bbox('all')
+            if not bbox:
+                return
+            _, y1, _, y2 = bbox
+            total_h = max(1, y2 - y1)
+            item_y = target.winfo_y()
+            # Scroll so that item's top is near the top (with margin)
+            frac = max(0.0, min(1.0, (item_y - 10) / total_h))
+            self.gallery_canvas.yview_moveto(frac)
+        except Exception:
+            pass
+
+    def _open_preview(self, index: int):
+        """Open a preview window for the selected image, with simple Left/Right navigation."""
+        try:
+            if not (0 <= index < len(self._gallery_order)):
+                return
+            self._selected_index = index
+            self._build_gallery()
+
+            top = tk.Toplevel(self.parent)
+            top.title(f"Previsualización - {self._gallery_order[index]}")
+            top.geometry("1000x800")
+
+            # Toolbar (zoom controls)
+            toolbar = ttk.Frame(top)
+            toolbar.pack(fill=tk.X)
+            # Container: canvas with scrollbars
+            cont = ttk.Frame(top)
+            cont.pack(fill=tk.BOTH, expand=True)
+            vbar = ttk.Scrollbar(cont, orient=tk.VERTICAL)
+            hbar = ttk.Scrollbar(cont, orient=tk.HORIZONTAL)
+            canvas = tk.Canvas(cont, bg="#000000", highlightthickness=0,
+                               yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+            vbar.config(command=canvas.yview)
+            hbar.config(command=canvas.xview)
+            vbar.pack(side=tk.RIGHT, fill=tk.Y)
+            hbar.pack(side=tk.BOTTOM, fill=tk.X)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            # State for preview
+            state = {
+                'pil': None,   # current PIL image (possibly downscaled base)
+                'scale': 1.0,  # current zoom scale
+                'fit': False   # fit-to-window mode flag
+            }
+
+            def clamp(val, a, b):
+                return max(a, min(b, val))
+
+            def render():
+                if state['pil'] is None:
+                    return
+                try:
+                    w, h = state['pil'].size
+                    # If fit mode is on, compute scale from current canvas size
+                    if state['fit']:
+                        cw = max(1, canvas.winfo_width())
+                        ch = max(1, canvas.winfo_height())
+                        state['scale'] = clamp(min(cw / w, ch / h), 0.05, 5.0)
+                    s = state['scale']
+                    new_w = max(1, int(w * s))
+                    new_h = max(1, int(h * s))
+                    disp = state['pil'] if (new_w == w and new_h == h) else state['pil'].resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(disp)
+                    canvas.delete("all")
+                    canvas.create_image(0, 0, anchor="nw", image=photo)
+                    canvas.image = photo
+                    canvas.config(scrollregion=(0, 0, new_w, new_h))
+                except Exception as e:
+                    print(f"Preview render error: {e}")
+
+            def set_scale(new_scale: float):
+                state['fit'] = False
+                state['scale'] = clamp(new_scale, 0.05, 5.0)
+                render()
+
+            def fit_to_window():
+                state['fit'] = True
+                render()
+
+            def on_canvas_resize(event):
+                if state['fit']:
+                    render()
+
+            canvas.bind('<Configure>', on_canvas_resize)
+
+            def zoom_in():
+                set_scale(state['scale'] * 1.25)
+
+            def zoom_out():
+                set_scale(state['scale'] / 1.25)
+
+            def reset_100():
+                set_scale(1.0)
+
+            # Toolbar buttons
+            ttk.Button(toolbar, text="-", width=3, command=zoom_out).pack(side=tk.LEFT, padx=(6, 2), pady=6)
+            ttk.Button(toolbar, text="+", width=3, command=zoom_in).pack(side=tk.LEFT, padx=2, pady=6)
+            ttk.Button(toolbar, text="Ajustar", command=fit_to_window).pack(side=tk.LEFT, padx=(8, 2), pady=6)
+            ttk.Button(toolbar, text="100%", command=reset_100).pack(side=tk.LEFT, padx=2, pady=6)
+
+            def load_and_show(idx: int):
+                # Clamp index
+                idx_clamped = max(0, min(idx, len(self._gallery_order) - 1))
+                fn = self._gallery_order[idx_clamped]
+                top.title(f"Previsualización - {fn}")
+                try:
+                    pil = Image.open(self.output_dir / fn)
+                    # Downscale large images to avoid Tk memory issues (cap max dimension ~2000px)
+                    max_dim = 2000
+                    w0, h0 = pil.size
+                    base_scale = min(1.0, max_dim / max(w0, h0))
+                    if base_scale < 1.0:
+                        pil = pil.resize((int(w0 * base_scale), int(h0 * base_scale)), Image.Resampling.LANCZOS)
+                except Exception as e:
+                    messagebox.showerror("Vista previa", f"No se pudo cargar la imagen: {e}")
+                    return
+
+                state['pil'] = pil
+                # If fit is active, recompute; else keep current scale
+                render()
+                # Update selected/highlight in gallery
+                self._selected_index = idx_clamped
+                self._build_gallery()
+                self.parent.after(50, self._scroll_selected_into_view)
+
+            def go_prev(event=None):
+                load_and_show(self._selected_index - 1)
+                return 'break'
+
+            def go_next(event=None):
+                load_and_show(self._selected_index + 1)
+                return 'break'
+
+            # Navigation row
+            nav = ttk.Frame(top)
+            nav.pack(fill=tk.X)
+            ttk.Button(nav, text="◀ Anterior", command=lambda: go_prev()).pack(side=tk.LEFT, padx=8, pady=6)
+            ttk.Button(nav, text="Siguiente ▶", command=lambda: go_next()).pack(side=tk.LEFT, padx=8, pady=6)
+
+            top.bind('<Left>', go_prev)
+            top.bind('<Right>', go_next)
+            top.focus_force()
+
+            # Initial load
+            load_and_show(index)
+        except Exception:
+            pass
 
     def _on_thumb_press(self, index: int, event):
         self._selected_index = index
@@ -1072,8 +1260,11 @@ class CameraScanner:
             
             # Update gallery
             self._gallery_order.append(filename)
+            self._selected_index = len(self._gallery_order) - 1
             self._save_gallery_manifest()
             self._build_gallery()
+            # Scroll to new item after a short delay to ensure layout is ready
+            self.parent.after(50, self._scroll_selected_into_view)
 
             # Show confirmation
             self.canvas.create_text(
@@ -1135,8 +1326,10 @@ class CameraScanner:
             
             # Update gallery (append in order L then R)
             self._gallery_order.extend([left_filename, right_filename])
+            self._selected_index = len(self._gallery_order) - 1
             self._save_gallery_manifest()
             self._build_gallery()
+            self.parent.after(50, self._scroll_selected_into_view)
 
             # Show confirmation
             self.canvas.create_text(

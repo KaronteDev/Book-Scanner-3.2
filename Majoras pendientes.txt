@@ -1,0 +1,38 @@
+Falta preguntar si puede usar ttkbootstrap
+
+Metadatos y proyectos
+
+Al crear un proyecto se debe solicitar los datos del proyecto en el que se está trabajando además de 
+### Campos principales
+
+| Campo | Descripción |
+| --- | --- |
+| **idproyecto** | Id autonumérico |
+| **titulo** | Nombre identificativo |
+| **autor** | Persona o entidad creadora |
+| **tipo** | Libro, revista, legajo, expediente, etc. |
+| **signatura** | Identificador archivístico |
+| **archivo** | Centro o institución |
+| **fondo** | Fondo documental asociado |
+| **tema** | Línea de investigación |
+| **etiquetas** | Palabras clave |
+| **fecha** | Año o rango temporal |
+
+Hay que generar un crud accesible desde escaner y anotaciones para gestionar los metadatos del proyecto y un botón que acceda a un crud de archivos, fondos y etiquetas desde cada ventana de edición de metadatos, además de añadir una gestión específica de cada una de estas tablas en una opción del menú principal.
+
+### Tablas complementarias archivos y fondos
+
+*   **archivos:** idarchivo, nombre, dirección, contacto.
+*   **fondos:** idfondo, nombre, descripción, archivo al que pertenece.
+*   **etiquetas:** idetiqueta, nombre, descripción
+
+
+El proyecto se almacenará en una carpeta cuyo nombre será formado por las siglas del Archivo y la signatura
+Cada proyecto almacena sus datos en esas carpetas independientes dentro del directorio raíz que tiene que estar configurado en la base global `GeoDocs.db`.
+
+
+
+
+
+
+Hay que generar una ventana de configuración global del programa que permita seleccionar la carpeta raíz de trabajo
