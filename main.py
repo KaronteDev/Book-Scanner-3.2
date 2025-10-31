@@ -23,6 +23,7 @@ import tempfile
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 from utils.theme_titlebar import apply_titlebar_theme
+from utils.window_utils import center_to_parent
 from utils import app_config
 try:
     from gui.settings_dialog import open_settings_dialog
@@ -54,7 +55,7 @@ class ModuleSelectorApp:
     def __init__(self, root):
         self.root = root
         self.root.title(f"{APP_NAME} {APP_VERSION}")
-        self.root.geometry("600x550")
+        self.root.geometry("650x600")
         self.root.resizable(False, False)
         
         # Set application icon
@@ -317,17 +318,22 @@ class ModuleSelectorApp:
                     parent=self.root
                 )
             else:
-                messagebox.showerror(
-                    "Error",
-                    f"No se pudo abrir el módulo de escaneo:\n{str(e)}"
-                )
+                messagebox.showerror("Error", f"No se pudo abrir el módulo de escaneo:\n{str(e)}", parent=self.root)
     
     def open_annotation(self):
         """Launch annotation/OCR module"""
         try:
             from gui.annotation_view import AnnotationWindow
+            # Center only when no saved geometry
+            saved = None
+            try:
+                saved = app_config.get_window_geometry("annotation")
+            except Exception:
+                saved = None
             annotation_win = ttk.Toplevel(self.root) if USE_BOOTSTRAP else tk.Toplevel(self.root)
             AnnotationWindow(annotation_win)
+            if not saved:
+                center_to_parent(annotation_win, self.root)
         except Exception as e:
             if Messagebox:
                 Messagebox.show_error(
@@ -336,17 +342,21 @@ class ModuleSelectorApp:
                     parent=self.root
                 )
             else:
-                messagebox.showerror(
-                    "Error",
-                    f"No se pudo abrir el módulo de anotación:\n{str(e)}"
-                )
+                messagebox.showerror("Error", f"No se pudo abrir el módulo de anotación:\n{str(e)}", parent=self.root)
     
     def open_export(self):
         """Launch export module"""
         try:
             from gui.export_view import ExportWindow
+            saved = None
+            try:
+                saved = app_config.get_window_geometry("export")
+            except Exception:
+                saved = None
             export_win = ttk.Toplevel(self.root) if USE_BOOTSTRAP else tk.Toplevel(self.root)
             ExportWindow(export_win)
+            if not saved:
+                center_to_parent(export_win, self.root)
         except Exception as e:
             if Messagebox:
                 Messagebox.show_error(
@@ -355,10 +365,7 @@ class ModuleSelectorApp:
                     parent=self.root
                 )
             else:
-                messagebox.showerror(
-                    "Error",
-                    f"No se pudo abrir el módulo de exportación:\n{str(e)}"
-                )
+                messagebox.showerror("Error", f"No se pudo abrir el módulo de exportación:\n{str(e)}", parent=self.root)
     
     def open_settings(self):
         """Open settings dialog with live preview and persistence"""
@@ -402,10 +409,7 @@ class ModuleSelectorApp:
                     parent=self.root
                 )
             else:
-                messagebox.showinfo(
-                    "Configuración",
-                    "Para configurar tema y directorio raíz, edite data/app_config.json"
-                )
+                messagebox.showinfo("Configuración", "Para configurar tema y directorio raíz, edite data/app_config.json", parent=self.root)
 
     def open_metadata_manager(self):
         try:
@@ -419,7 +423,7 @@ class ModuleSelectorApp:
                     parent=self.root
                 )
             else:
-                messagebox.showerror("Error", f"No se pudo abrir la gestión de metadatos:\n{str(e)}")
+                messagebox.showerror("Error", f"No se pudo abrir la gestión de metadatos:\n{str(e)}", parent=self.root)
     
     def open_help(self):
         """Open help/documentation"""
@@ -430,15 +434,12 @@ class ModuleSelectorApp:
                 parent=self.root
             )
         else:
-            messagebox.showinfo(
-                "Ayuda",
-                f"{APP_NAME} {APP_VERSION}\n\n"
-                "Consulte README.md para documentación completa.\n\n"
-                "Atajos de teclado:\n"
-                "- F1: Ayuda\n"
-                "- F5: Recargar\n"
-                "- Ctrl+Q: Salir"
-            )
+            messagebox.showinfo("Ayuda", f"{APP_NAME} {APP_VERSION}\n\n"
+                                 "Consulte README.md para documentación completa.\n\n"
+                                 "Atajos de teclado:\n"
+                                 "- F1: Ayuda\n"
+                                 "- F5: Recargar\n"
+                                 "- Ctrl+Q: Salir", parent=self.root)
 
 
 def main():

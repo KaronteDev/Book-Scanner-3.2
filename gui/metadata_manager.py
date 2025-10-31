@@ -23,13 +23,14 @@ from typing import Optional, Dict, Any
 from utils.theme_titlebar import apply_titlebar_theme
 from utils import app_config
 from utils import db_manager as db
+from utils.window_utils import center_to_parent
 
 
 class MetadataManager(tk.Toplevel):
     def __init__(self, parent: tk.Misc, focus_tab: str = "proyectos", edit_project_id: Optional[int] = None):
         super().__init__(parent)
         self.title("Gestión de Metadatos · GeoDocs")
-        self.geometry("1000x650")
+        self.geometry("1050x650")
         self.resizable(True, True)
         self.parent = parent
 
@@ -58,6 +59,8 @@ class MetadataManager(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
         self.focus_set()
+        # Center over parent
+        center_to_parent(self, parent)
 
     # ---- PROYECTOS ----
     def _build_tab_proyectos(self):
@@ -66,7 +69,7 @@ class MetadataManager(tk.Toplevel):
         ttk.Button(top, text="➕ Nuevo", command=self._new_project).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="✏️ Editar", command=self._edit_selected_project).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="🗑 Eliminar", command=self._delete_selected_project).pack(side=tk.LEFT, padx=3)
-        ttk.Button(top, text="⚙️ Tablas (Archivos/Fondos/Etiquetas)", command=lambda: self.nb.select(1)).pack(side=tk.LEFT, padx=10)
+        # ttk.Button(top, text="⚙️ Tablas (Archivos/Fondos/Etiquetas)", command=lambda: self.nb.select(1)).pack(side=tk.LEFT, padx=10)
 
         # Search bar
         search_frame = ttk.Frame(tab); search_frame.pack(fill=tk.X, padx=8, pady=(0,6))
@@ -135,7 +138,7 @@ class MetadataManager(tk.Toplevel):
     def _edit_selected_project(self):
         pid = self._selected_id(self.tree_proj, 0)
         if not pid:
-            (Messagebox.show_warning(title="Proyectos", message="Seleccione un proyecto", parent=self) if Messagebox else messagebox.showwarning("Proyectos","Seleccione un proyecto"))
+            (Messagebox.show_warning(title="Proyectos", message="Seleccione un proyecto", parent=self) if Messagebox else messagebox.showwarning("Proyectos","Seleccione un proyecto", parent=self))
             return
         self._open_project_editor(pid)
 
@@ -143,7 +146,7 @@ class MetadataManager(tk.Toplevel):
         pid = self._selected_id(self.tree_proj, 0)
         if not pid:
             return
-        if not messagebox.askyesno("Eliminar", "¿Eliminar el proyecto? (No borra archivos)"):
+        if not messagebox.askyesno("Eliminar", "¿Eliminar el proyecto? (No borra archivos)", parent=self):
             return
         db.delete_project(self.base_path, pid)
         self._reload_projects()
@@ -209,7 +212,7 @@ class MetadataManager(tk.Toplevel):
         aid = self._selected_id(self.tree_arch, 0)
         if not aid:
             return
-        if not messagebox.askyesno("Eliminar", "¿Eliminar el archivo (institución)?"):
+        if not messagebox.askyesno("Eliminar", "¿Eliminar el archivo (institución)?", parent=self):
             return
         db.delete_archivo(self.base_path, aid)
         self._reload_archivos()
@@ -272,7 +275,7 @@ class MetadataManager(tk.Toplevel):
         fid = self._selected_id(self.tree_fond, 0)
         if not fid:
             return
-        if not messagebox.askyesno("Eliminar", "¿Eliminar el fondo?"):
+        if not messagebox.askyesno("Eliminar", "¿Eliminar el fondo?", parent=self):
             return
         db.delete_fondo(self.base_path, fid)
         self._reload_fondos()
@@ -332,7 +335,7 @@ class MetadataManager(tk.Toplevel):
         tid = self._selected_id(self.tree_tags, 0)
         if not tid:
             return
-        if not messagebox.askyesno("Eliminar", "¿Eliminar la etiqueta?"):
+        if not messagebox.askyesno("Eliminar", "¿Eliminar la etiqueta?", parent=self):
             return
         db.delete_etiqueta(self.base_path, tid)
         self._reload_etiquetas()
@@ -343,8 +346,13 @@ class EditorProyecto(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, project_id: Optional[int], on_saved=None):
         super().__init__(parent)
         self.title("Proyecto")
-        self.geometry("720x520")
+        self.geometry("800x580")
         apply_titlebar_theme(self)
+        
+        # Modal and center
+        self.transient(parent)
+        self.grab_set()
+        center_to_parent(self, parent)
         self.base_path = base_path
         self.project_id = project_id
         self.on_saved = on_saved
@@ -366,7 +374,7 @@ class EditorProyecto(tk.Toplevel):
         def add_label(text):
             nonlocal row
             ttk.Label(frm, text=text).grid(row=row, column=0, sticky='e', padx=6, pady=4)
-        def add_entry(var, width=50):
+        def add_entry(var, width=56):
             nonlocal row
             e = ttk.Entry(frm, textvariable=var, width=width)
             e.grid(row=row, column=1, sticky='w', padx=6, pady=4)
@@ -382,7 +390,7 @@ class EditorProyecto(tk.Toplevel):
         add_label("Archivo (institución):")
         archivo_frame = ttk.Frame(frm)
         archivo_frame.grid(row=row, column=1, sticky='w', padx=6, pady=4); row += 1
-        self.cmb_arch = ttk.Combobox(archivo_frame, textvariable=self.var_archivo, state='readonly', width=44)
+        self.cmb_arch = ttk.Combobox(archivo_frame, textvariable=self.var_archivo, state='readonly', width=50)
         self.cmb_arch.pack(side=tk.LEFT)
         ttk.Button(archivo_frame, text="➕", width=3, command=self._quick_create_archivo).pack(side=tk.LEFT, padx=(6,0))
         self.cmb_arch.bind('<<ComboboxSelected>>', lambda e: self._refresh_fondos())
@@ -390,7 +398,7 @@ class EditorProyecto(tk.Toplevel):
         add_label("Fondo:")
         fondo_frame = ttk.Frame(frm)
         fondo_frame.grid(row=row, column=1, sticky='w', padx=6, pady=4); row += 1
-        self.cmb_fondo = ttk.Combobox(fondo_frame, textvariable=self.var_fondo, state='readonly', width=44)
+        self.cmb_fondo = ttk.Combobox(fondo_frame, textvariable=self.var_fondo, state='readonly', width=50)
         self.cmb_fondo.pack(side=tk.LEFT)
         ttk.Button(fondo_frame, text="➕", width=3, command=self._quick_create_fondo).pack(side=tk.LEFT, padx=(6,0))
 
@@ -408,7 +416,7 @@ class EditorProyecto(tk.Toplevel):
         
         # Listbox with scrollbar for multi-select
         tag_scroll = ttk.Scrollbar(tag_frame, orient=tk.VERTICAL)
-        self.lst_tags = tk.Listbox(tag_frame, selectmode=tk.MULTIPLE, height=5, width=45, yscrollcommand=tag_scroll.set, exportselection=False)
+        self.lst_tags = tk.Listbox(tag_frame, selectmode=tk.MULTIPLE, height=5, width=51, yscrollcommand=tag_scroll.set, exportselection=False)
         tag_scroll.config(command=self.lst_tags.yview)
         self.lst_tags.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tag_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -422,8 +430,8 @@ class EditorProyecto(tk.Toplevel):
         self._all_tags = []
 
         # Accesos rápidos a tablas
-        bar = ttk.Frame(frm); bar.grid(row=row, column=0, columnspan=2, sticky='w', padx=6, pady=(10,4)); row += 1
-        ttk.Button(bar, text="Gestionar Archivos/Fondos/Etiquetas", command=lambda: MetadataManager(self, focus_tab='archivos')).pack(side=tk.LEFT)
+        # bar = ttk.Frame(frm); bar.grid(row=row, column=0, columnspan=2, sticky='w', padx=6, pady=(10,4)); row += 1
+        # ttk.Button(bar, text="Gestionar Archivos/Fondos/Etiquetas", command=lambda: MetadataManager(self, focus_tab='archivos')).pack(side=tk.LEFT)
 
         # Botonera guardar/cancelar
         btns = ttk.Frame(frm); btns.grid(row=row, column=0, columnspan=2, sticky='e', pady=(20, 4))
@@ -482,7 +490,7 @@ class EditorProyecto(tk.Toplevel):
         # Get selected archivo
         sel = self.var_archivo.get()
         if not sel:
-            messagebox.showwarning("Crear Fondo", "Seleccione primero un Archivo (institución)")
+            messagebox.showwarning("Crear Fondo", "Seleccione primero un Archivo (institución)", parent=self)
             return
         aid = int(sel.split('·',1)[0])
         
@@ -571,7 +579,7 @@ class EditorProyecto(tk.Toplevel):
     def _save(self):
         titulo = self.var_titulo.get().strip()
         if not titulo:
-            messagebox.showwarning("Proyecto", "El título es obligatorio")
+            messagebox.showwarning("Proyecto", "El título es obligatorio", parent=self)
             return
         
         signatura = self.var_sign.get().strip()
@@ -580,7 +588,7 @@ class EditorProyecto(tk.Toplevel):
         if signatura:
             valid, error_msg = db.validate_signatura(signatura)
             if not valid:
-                messagebox.showerror("Proyecto", f"Signatura inválida:\n{error_msg}")
+                messagebox.showerror("Proyecto", f"Signatura inválida:\n{error_msg}", parent=self)
                 return
         
         # Get selected tag IDs
@@ -624,17 +632,22 @@ class EditorProyecto(tk.Toplevel):
                 (Messagebox.show_info(title="Proyecto", message=f"Proyecto creado (ID {pid})", parent=self) if Messagebox else messagebox.showinfo("Proyecto", f"Proyecto creado (ID {pid})"))
                 self.destroy()
         except ValueError as e:
-            messagebox.showerror("Proyecto", f"Error de validación:\n{str(e)}")
+            messagebox.showerror("Proyecto", f"Error de validación:\n{str(e)}", parent=self)
         except Exception as e:
-            messagebox.showerror("Proyecto", f"Error al guardar:\n{str(e)}")
+            messagebox.showerror("Proyecto", f"Error al guardar:\n{str(e)}", parent=self)
 
 
 class EditorArchivo(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, archivo_id: Optional[int], on_saved=None):
         super().__init__(parent)
         self.title("Archivo (institución)")
-        self.geometry("520x420")
+        self.geometry("680x400")
         apply_titlebar_theme(self)
+        
+        # Modal and center
+        self.transient(parent)
+        self.grab_set()
+        center_to_parent(self, parent)
         self.base_path = base_path
         self.archivo_id = archivo_id
         self.on_saved = on_saved
@@ -652,7 +665,7 @@ class EditorArchivo(tk.Toplevel):
         ]
         for i,(txt,var) in enumerate(labels):
             ttk.Label(frm, text=txt).grid(row=i, column=0, sticky='e', padx=6, pady=4)
-            ttk.Entry(frm, textvariable=var, width=48).grid(row=i, column=1, sticky='w', padx=6, pady=4)
+            ttk.Entry(frm, textvariable=var, width=52).grid(row=i, column=1, sticky='w', padx=6, pady=4)
         btns = ttk.Frame(frm); btns.grid(row=len(labels), column=0, columnspan=2, sticky='e', pady=(14,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
@@ -676,7 +689,7 @@ class EditorArchivo(tk.Toplevel):
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Archivo", "Nombre requerido")
+            messagebox.showwarning("Archivo", "Nombre requerido", parent=self)
             return
         if self.archivo_id:
             db.update_archivo(self.base_path, self.archivo_id, nombre=nombre, siglas=self.v_siglas.get().strip(), direccion=self.v_dir.get().strip(), contacto=self.v_cont.get().strip(), email=self.v_email.get().strip(), telefono=self.v_tel.get().strip(), url=self.v_url.get().strip())
@@ -691,8 +704,13 @@ class EditorFondo(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, fondo_id: Optional[int], on_saved=None):
         super().__init__(parent)
         self.title("Fondo documental")
-        self.geometry("520x420")
+        self.geometry("700x330")
         apply_titlebar_theme(self)
+        
+        # Modal and center
+        self.transient(parent)
+        self.grab_set()
+        center_to_parent(self, parent)
         self.base_path = base_path
         self.fondo_id = fondo_id
         self.on_saved = on_saved
@@ -701,7 +719,7 @@ class EditorFondo(tk.Toplevel):
         self.v_nombre = tk.StringVar(); self.v_desc = tk.StringVar(); self.v_desde = tk.StringVar(); self.v_hasta = tk.StringVar(); self.v_arch = tk.StringVar()
         # Archivo combo
         ttk.Label(frm, text="Archivo (institución):").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        self.cmb_arch = ttk.Combobox(frm, textvariable=self.v_arch, state='readonly', width=46)
+        self.cmb_arch = ttk.Combobox(frm, textvariable=self.v_arch, state='readonly', width=52)
         self.cmb_arch.grid(row=0, column=1, sticky='w', padx=6, pady=4)
         self._arch_rows = db.list_archivos(self.base_path)
         self.cmb_arch['values'] = [f"{r['id']} · {r['nombre']} ({(r.get('siglas') or '').upper()})" for r in self._arch_rows]
@@ -717,7 +735,7 @@ class EditorFondo(tk.Toplevel):
         base = 1
         for i,(txt,var) in enumerate(labels):
             ttk.Label(frm, text=txt).grid(row=base+i, column=0, sticky='e', padx=6, pady=4)
-            ttk.Entry(frm, textvariable=var, width=48).grid(row=base+i, column=1, sticky='w', padx=6, pady=4)
+            ttk.Entry(frm, textvariable=var, width=52).grid(row=base+i, column=1, sticky='w', padx=6, pady=4)
         btns = ttk.Frame(frm); btns.grid(row=base+len(labels), column=0, columnspan=2, sticky='e', pady=(14,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
@@ -742,7 +760,7 @@ class EditorFondo(tk.Toplevel):
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Fondo", "Nombre requerido")
+            messagebox.showwarning("Fondo", "Nombre requerido", parent=self)
             return
         a_id = None
         if self.v_arch.get():
@@ -764,8 +782,13 @@ class EditorEtiqueta(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, tag_id: Optional[int], on_saved=None):
         super().__init__(parent)
         self.title("Etiqueta")
-        self.geometry("420x260")
+        self.geometry("600x180")
         apply_titlebar_theme(self)
+        
+        # Modal and center
+        self.transient(parent)
+        self.grab_set()
+        center_to_parent(self, parent)
         self.base_path = base_path
         self.tag_id = tag_id
         self.on_saved = on_saved
@@ -773,9 +796,9 @@ class EditorEtiqueta(tk.Toplevel):
         frm = ttk.Frame(self, padding=10); frm.pack(fill=tk.BOTH, expand=True)
         self.v_nombre = tk.StringVar(); self.v_desc = tk.StringVar()
         ttk.Label(frm, text="Nombre:").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_nombre, width=42).grid(row=0, column=1, sticky='w', padx=6, pady=4)
+        ttk.Entry(frm, textvariable=self.v_nombre, width=46).grid(row=0, column=1, sticky='w', padx=6, pady=4)
         ttk.Label(frm, text="Descripción:").grid(row=1, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_desc, width=42).grid(row=1, column=1, sticky='w', padx=6, pady=4)
+        ttk.Entry(frm, textvariable=self.v_desc, width=46).grid(row=1, column=1, sticky='w', padx=6, pady=4)
         btns = ttk.Frame(frm); btns.grid(row=2, column=0, columnspan=2, sticky='e', pady=(14,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Guardar", command=self._save).pack(side=tk.RIGHT, padx=6)
@@ -793,7 +816,7 @@ class EditorEtiqueta(tk.Toplevel):
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Etiqueta", "Nombre requerido")
+            messagebox.showwarning("Etiqueta", "Nombre requerido", parent=self)
             return
         if self.tag_id:
             db.update_etiqueta(self.base_path, self.tag_id, nombre=nombre, descripcion=self.v_desc.get().strip() or None)
@@ -809,8 +832,11 @@ class QuickEditorArchivo(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, on_saved=None):
         super().__init__(parent)
         self.title("Crear Archivo")
-        self.geometry("480x280")
+        self.geometry("570x260")
         apply_titlebar_theme(self)
+        
+        # Center before making modal
+        center_to_parent(self, parent)
         self.base_path = base_path
         self.on_saved = on_saved
 
@@ -819,9 +845,9 @@ class QuickEditorArchivo(tk.Toplevel):
         self.v_siglas = tk.StringVar()
         
         ttk.Label(frm, text="Nombre:").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_nombre, width=42).grid(row=0, column=1, sticky='w', padx=6, pady=4)
+        ttk.Entry(frm, textvariable=self.v_nombre, width=46).grid(row=0, column=1, sticky='w', padx=6, pady=4)
         ttk.Label(frm, text="Siglas:").grid(row=1, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_siglas, width=42).grid(row=1, column=1, sticky='w', padx=6, pady=4)
+        ttk.Entry(frm, textvariable=self.v_siglas, width=46).grid(row=1, column=1, sticky='w', padx=6, pady=4)
         
         ttk.Label(frm, text="(Campos adicionales se pueden editar después)", font=('', 9, 'italic')).grid(row=2, column=0, columnspan=2, pady=(10,0))
         
@@ -837,7 +863,7 @@ class QuickEditorArchivo(tk.Toplevel):
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Archivo", "Nombre requerido")
+            messagebox.showwarning("Archivo", "Nombre requerido", parent=self)
             return
         
         siglas = self.v_siglas.get().strip()
@@ -859,8 +885,11 @@ class QuickEditorFondo(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, archivo_id: int, on_saved=None):
         super().__init__(parent)
         self.title("Crear Fondo")
-        self.geometry("480x240")
+        self.geometry("680x220")
         apply_titlebar_theme(self)
+        
+        # Center before making modal
+        center_to_parent(self, parent)
         self.base_path = base_path
         self.archivo_id = archivo_id
         self.on_saved = on_saved
@@ -870,9 +899,9 @@ class QuickEditorFondo(tk.Toplevel):
         self.v_desc = tk.StringVar()
         
         ttk.Label(frm, text="Nombre:").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_nombre, width=42).grid(row=0, column=1, sticky='w', padx=6, pady=4)
+        ttk.Entry(frm, textvariable=self.v_nombre, width=46).grid(row=0, column=1, sticky='w', padx=6, pady=4)
         ttk.Label(frm, text="Descripción:").grid(row=1, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_desc, width=42).grid(row=1, column=1, sticky='w', padx=6, pady=4)
+        ttk.Entry(frm, textvariable=self.v_desc, width=46).grid(row=1, column=1, sticky='w', padx=6, pady=4)
         
         btns = ttk.Frame(frm); btns.grid(row=2, column=0, columnspan=2, sticky='e', pady=(20,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
@@ -886,7 +915,7 @@ class QuickEditorFondo(tk.Toplevel):
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Fondo", "Nombre requerido")
+            messagebox.showwarning("Fondo", "Nombre requerido", parent=self)
             return
         
         data = dict(
@@ -908,8 +937,11 @@ class QuickEditorEtiqueta(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, on_saved=None):
         super().__init__(parent)
         self.title("Crear Etiqueta")
-        self.geometry("420x200")
+        self.geometry("580x200")
         apply_titlebar_theme(self)
+        
+        # Center before making modal
+        center_to_parent(self, parent)
         self.base_path = base_path
         self.on_saved = on_saved
 
@@ -918,12 +950,12 @@ class QuickEditorEtiqueta(tk.Toplevel):
         self.v_desc = tk.StringVar()
         
         ttk.Label(frm, text="Nombre:").grid(row=0, column=0, sticky='e', padx=6, pady=4)
-        e_nombre = ttk.Entry(frm, textvariable=self.v_nombre, width=38)
+        e_nombre = ttk.Entry(frm, textvariable=self.v_nombre, width=44)
         e_nombre.grid(row=0, column=1, sticky='w', padx=6, pady=4)
         e_nombre.focus_set()
         
         ttk.Label(frm, text="Descripción:").grid(row=1, column=0, sticky='e', padx=6, pady=4)
-        ttk.Entry(frm, textvariable=self.v_desc, width=38).grid(row=1, column=1, sticky='w', padx=6, pady=4)
+        ttk.Entry(frm, textvariable=self.v_desc, width=44).grid(row=1, column=1, sticky='w', padx=6, pady=4)
         
         btns = ttk.Frame(frm); btns.grid(row=2, column=0, columnspan=2, sticky='e', pady=(20,4))
         ttk.Button(btns, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=6)
@@ -939,7 +971,7 @@ class QuickEditorEtiqueta(tk.Toplevel):
     def _save(self):
         nombre = self.v_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning("Etiqueta", "Nombre requerido")
+            messagebox.showwarning("Etiqueta", "Nombre requerido", parent=self)
             return
         
         new_id = db.create_etiqueta(

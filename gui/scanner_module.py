@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 from typing import Optional, List, Tuple
+from utils.window_utils import center_to_parent
 import json
 
 # Ensure project root on sys.path for utils import
@@ -536,6 +537,10 @@ class CameraScanner:
             self._build_gallery()
 
             top = tk.Toplevel(self.parent)
+            try:
+                center_to_parent(top, self.parent)
+            except Exception:
+                pass
             top.title(f"Previsualización - {self._gallery_order[index]}")
             top.geometry("1000x800")
 
@@ -654,7 +659,7 @@ class CameraScanner:
                     if Messagebox:
                         Messagebox.show_error(title="Vista previa", message=f"No se pudo cargar la imagen: {e}", parent=self.root)
                     else:
-                        messagebox.showerror("Vista previa", f"No se pudo cargar la imagen: {e}")
+                        messagebox.showerror("Vista previa", f"No se pudo cargar la imagen: {e}", parent=self.root)
                     return
 
                 state['pil'] = pil
@@ -746,7 +751,7 @@ class CameraScanner:
         if self._selected_index is None:
             return 'break'
         fn = self._gallery_order[self._selected_index]
-        if (Messagebox.yesno(title="Borrar miniatura", message=f"¿Desea borrar la miniatura '{fn}'?", parent=self.root) if Messagebox else messagebox.askyesno("Borrar miniatura", f"¿Desea borrar la miniatura '{fn}'?")):
+        if (Messagebox.yesno(title="Borrar miniatura", message=f"¿Desea borrar la miniatura '{fn}'?", parent=self.root) if Messagebox else messagebox.askyesno("Borrar miniatura", f"¿Desea borrar la miniatura '{fn}'?", parent=self.root)):
             try:
                 (self.output_dir / fn).unlink(missing_ok=True)
                 self._thumb_cache.pop(fn, None)
@@ -759,7 +764,7 @@ class CameraScanner:
                 if Messagebox:
                     Messagebox.show_error(title="Borrado", message=f"No se pudo borrar: {e}", parent=self.root)
                 else:
-                    messagebox.showerror("Borrado", f"No se pudo borrar: {e}")
+                    messagebox.showerror("Borrado", f"No se pudo borrar: {e}", parent=self.root)
         try:
             self.gallery_container.focus_set()
         except Exception:
@@ -792,7 +797,7 @@ class CameraScanner:
         if self._selected_index is None:
             return 'break'
         fn = self._gallery_order[self._selected_index]
-        if (Messagebox.yesno(title="Borrar miniatura", message=f"¿Desea borrar la miniatura '{fn}'?", parent=self.root) if Messagebox else messagebox.askyesno("Borrar miniatura", f"¿Desea borrar la miniatura '{fn}'?")):
+        if (Messagebox.yesno(title="Borrar miniatura", message=f"¿Desea borrar la miniatura '{fn}'?", parent=self.root) if Messagebox else messagebox.askyesno("Borrar miniatura", f"¿Desea borrar la miniatura '{fn}'?", parent=self.root)):
             try:
                 (self.output_dir / fn).unlink(missing_ok=True)
                 self._thumb_cache.pop(fn, None)
@@ -805,7 +810,7 @@ class CameraScanner:
                 if Messagebox:
                     Messagebox.show_error(title="Borrado", message=f"No se pudo borrar: {e}", parent=self.root)
                 else:
-                    messagebox.showerror("Borrado", f"No se pudo borrar: {e}")
+                    messagebox.showerror("Borrado", f"No se pudo borrar: {e}", parent=self.root)
         try:
             self.gallery_container.focus_set()
         except Exception:
@@ -894,7 +899,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_warning(title="Cámara", message="OpenCV no está instalado", parent=self.root)
             else:
-                messagebox.showwarning("Cámara", "OpenCV no está instalado")
+                messagebox.showwarning("Cámara", "OpenCV no está instalado", parent=self.root)
             return
         
         sel = self.cmb_cam.get()
@@ -902,7 +907,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_error(title="Cámara", message="Seleccione una cámara válida", parent=self.root)
             else:
-                messagebox.showerror("Cámara", "Seleccione una cámara válida")
+                messagebox.showerror("Cámara", "Seleccione una cámara válida", parent=self.root)
             return
         
         idx = self.camera_map[sel]
@@ -914,7 +919,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_error(title="Cámara", message=f"No se pudo abrir la cámara {idx}", parent=self.root)
             else:
-                messagebox.showerror("Cámara", f"No se pudo abrir la cámara {idx}")
+                messagebox.showerror("Cámara", f"No se pudo abrir la cámara {idx}", parent=self.root)
             self.cap = None
             return
         
@@ -1356,7 +1361,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_warning(title="Captura", message="Cámara no disponible", parent=self.root)
             else:
-                messagebox.showwarning("Captura", "Cámara no disponible")
+                messagebox.showwarning("Captura", "Cámara no disponible", parent=self.root)
             return
         
         ret, frame = self.cap.read()
@@ -1364,7 +1369,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_error(title="Captura", message="No se pudo capturar imagen", parent=self.root)
             else:
-                messagebox.showerror("Captura", "No se pudo capturar imagen")
+                messagebox.showerror("Captura", "No se pudo capturar imagen", parent=self.root)
             return
         
         # Convert to RGB
@@ -1513,7 +1518,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_error(title="Error", message=f"No se pudo guardar: {e}", parent=self.root)
             else:
-                messagebox.showerror("Error", f"No se pudo guardar: {e}")
+                messagebox.showerror("Error", f"No se pudo guardar: {e}", parent=self.root)
     
     def _save_book_pages(self, img, split=None):
         """Split and save left/right pages from book"""
@@ -1578,7 +1583,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_error(title="Error", message=f"No se pudo guardar: {e}", parent=self.root)
             else:
-                messagebox.showerror("Error", f"No se pudo guardar: {e}")
+                messagebox.showerror("Error", f"No se pudo guardar: {e}", parent=self.root)
 
     def _split_image_by_line(self, img, x1, y1, x2, y2):
         """Split image into two parts along the infinite line passing through (x1,y1)-(x2,y2).
@@ -1698,7 +1703,7 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_warning(title="Calibración", message="Cámara no disponible", parent=self.root)
             else:
-                messagebox.showwarning("Calibración", "Cámara no disponible")
+                messagebox.showwarning("Calibración", "Cámara no disponible", parent=self.root)
             return
         
         # Capture current frame
@@ -1707,11 +1712,15 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_error(title="Calibración", message="No se pudo capturar imagen", parent=self.root)
             else:
-                messagebox.showerror("Calibración", "No se pudo capturar imagen")
+                messagebox.showerror("Calibración", "No se pudo capturar imagen", parent=self.root)
             return
         
         # Create modal dialog
         dialog = tk.Toplevel(self.parent)
+        try:
+            center_to_parent(dialog, self.parent)
+        except Exception:
+            pass
         dialog.title("Calibrar Área de Captura")
         dialog.geometry("800x650")
         dialog.transient(self.parent)  # Make it a child window
@@ -1817,14 +1826,14 @@ class CameraScanner:
                 if Messagebox:
                     Messagebox.show_info(title="Calibración", message="Área de captura guardada", parent=self.root)
                 else:
-                    messagebox.showinfo("Calibración", "Área de captura guardada")
+                    messagebox.showinfo("Calibración", "Área de captura guardada", parent=self.root)
                 dialog.grab_release()
                 dialog.destroy()
             else:
                 if Messagebox:
                     Messagebox.show_warning(title="Calibración", message="Dibuja un rectángulo primero", parent=self.root)
                 else:
-                    messagebox.showwarning("Calibración", "Dibuja un rectángulo primero")
+                    messagebox.showwarning("Calibración", "Dibuja un rectángulo primero", parent=self.root)
         
         def cancel():
             dialog.grab_release()
@@ -1855,12 +1864,20 @@ class CameraScanner:
             if Messagebox:
                 Messagebox.show_error(title="Error", message=f"No se pudo abrir carpeta: {e}", parent=self.root)
             else:
-                messagebox.showerror("Error", f"No se pudo abrir carpeta: {e}")
+                messagebox.showerror("Error", f"No se pudo abrir carpeta: {e}", parent=self.root)
 
     # --- Project integration ---
     def _select_project(self):
         """Small selector for project to direct captured images into its 'paginas' folder."""
-        top = tk.Toplevel(self.parent); top.title("Seleccionar Proyecto"); top.geometry("520x160"); top.transient(self.parent); top.grab_set()
+        top = tk.Toplevel(self.parent)
+        top.title("Seleccionar Proyecto")
+        top.geometry("520x160")
+        top.transient(self.parent)
+        top.grab_set()
+        try:
+            center_to_parent(top, self.parent)
+        except Exception:
+            pass
         ttk.Label(top, text="Proyecto:").pack(anchor='w', padx=10, pady=(12,4))
         combo = ttk.Combobox(top, state='readonly', width=60)
         combo.pack(fill=tk.X, padx=10)

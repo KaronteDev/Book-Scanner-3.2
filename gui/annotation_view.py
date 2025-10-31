@@ -42,6 +42,7 @@ from modules import spellcheck as sp
 from modules import glossary_manager as gm
 from modules import diff_engine as de
 from utils.theme_titlebar import apply_titlebar_theme
+from utils.window_utils import center_to_parent
 from utils import app_config
 try:
     from gui.metadata_manager import open_metadata_manager
@@ -77,6 +78,16 @@ class AnnotationWindow:
         self.tts = get_tts_manager()
         
         self.create_ui()
+        # If window geometry not restored, center over parent if available
+        try:
+            geo = app_config.get_window_geometry("annotation")
+        except Exception:
+            geo = None
+        if not geo:
+            try:
+                center_to_parent(self.root, self.root.master if hasattr(self.root, 'master') else None)
+            except Exception:
+                pass
         self.load_projects()
     
     # Title bar theme handled via utils.theme_titlebar
@@ -344,7 +355,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_warning(title="Historial", message="No hay página seleccionada", parent=self.root)
             else:
-                messagebox.showwarning("Historial", "No hay página seleccionada")
+                messagebox.showwarning("Historial", "No hay página seleccionada", parent=self.root)
             return
         project_dir = Path(self.current_project['carpeta_raiz'])
         page = self.pages[self.page_index]
@@ -353,9 +364,13 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_info(title="Historial", message="No hay versiones de OCR para esta página", parent=self.root)
             else:
-                messagebox.showinfo("Historial", "No hay versiones de OCR para esta página")
+                messagebox.showinfo("Historial", "No hay versiones de OCR para esta página", parent=self.root)
             return
         top = tk.Toplevel(self.root)
+        try:
+            center_to_parent(top, self.root)
+        except Exception:
+            pass
         top.title("Historial de versiones · Diff")
         top.geometry("1100x700")
 
@@ -493,7 +508,8 @@ class AnnotationWindow:
             "Aplicar y guardar",
             f"¿Aplicar versión {row_b.get('version_type')} a OCR Corregido y guardar automáticamente?\n\n"
             f"Idioma: {row_b.get('language') or ''}\n"
-            f"Fecha: {row_b.get('created_at')}"
+            f"Fecha: {row_b.get('created_at')}",
+            parent=top
         ):
             return
         # Load into editor
@@ -509,12 +525,12 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_info(title="Guardado", message=f"Corrección guardada como versión {vid}", parent=self.root)
             else:
-                messagebox.showinfo("Guardado", f"Corrección guardada como versión {vid}")
+                messagebox.showinfo("Guardado", f"Corrección guardada como versión {vid}", parent=self.root)
         else:
             if Messagebox:
                 Messagebox.show_warning(title="Guardar", message="No se pudo guardar: página no válida", parent=self.root)
             else:
-                messagebox.showwarning("Guardar", "No se pudo guardar: página no válida")
+                messagebox.showwarning("Guardar", "No se pudo guardar: página no válida", parent=self.root)
 
     def _vh_apply_b_to_editor(self, top):
         """Load the selected B version into the main OCR Original editor and refresh labels/comparator."""
@@ -532,7 +548,8 @@ class AnnotationWindow:
             f"¿Cargar versión {row_b.get('version_type')} en OCR Original?\n\n"
             f"Idioma: {row_b.get('language') or ''}\n"
             f"Fecha: {row_b.get('created_at')}\n\n"
-            f"Nota: Esto NO guardará automáticamente."
+            f"Nota: Esto NO guardará automáticamente.",
+            parent=top
         ):
             return
         self.text_ocr_original.delete('1.0', tk.END)
@@ -563,7 +580,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_error(title="Error", message=f"No se pudieron cargar proyectos:\n{str(e)}", parent=self.root)
             else:
-                messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}")
+                messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}", parent=self.root)
 
     def on_close(self):
         try:
@@ -605,7 +622,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_error(title="Páginas", message=f"No se pudieron cargar: {e}", parent=self.root)
             else:
-                messagebox.showerror("Páginas", f"No se pudieron cargar: {e}")
+                messagebox.showerror("Páginas", f"No se pudieron cargar: {e}", parent=self.root)
     
     def prev_page(self):
         """Navigate to previous page"""
@@ -659,7 +676,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_warning(title="OCR", message="No hay página seleccionada", parent=self.root)
             else:
-                messagebox.showwarning("OCR", "No hay página seleccionada")
+                messagebox.showwarning("OCR", "No hay página seleccionada", parent=self.root)
             return
         page = self.pages[self.page_index]
         img_path = page['processed_path'] or page['original_path']
@@ -673,7 +690,7 @@ class AnnotationWindow:
                 if Messagebox:
                     Messagebox.show_error(title="OCR", message=res.get('error') or 'Fallo de OCR', parent=self.root)
                 else:
-                    messagebox.showerror("OCR", res.get('error') or 'Fallo de OCR')
+                    messagebox.showerror("OCR", res.get('error') or 'Fallo de OCR', parent=self.root)
                 return
             text = res.get('text') or ''
             conf = float(res.get('confidence') or 0)
@@ -693,7 +710,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_error(title="OCR", message=str(e), parent=self.root)
             else:
-                messagebox.showerror("OCR", str(e))
+                messagebox.showerror("OCR", str(e), parent=self.root)
     
     def play_tts(self):
         """Play text-to-speech"""
@@ -708,7 +725,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_warning(title="TTS", message="No hay texto para reproducir", parent=self.root)
             else:
-                messagebox.showwarning("TTS", "No hay texto para reproducir")
+                messagebox.showwarning("TTS", "No hay texto para reproducir", parent=self.root)
     
     def stop_tts(self):
         """Stop text-to-speech"""
@@ -725,7 +742,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_warning(title="Guardar", message="No hay texto corregido", parent=self.root)
             else:
-                messagebox.showwarning("Guardar", "No hay texto corregido")
+                messagebox.showwarning("Guardar", "No hay texto corregido", parent=self.root)
             return
         project_dir = Path(self.current_project['carpeta_raiz'])
         vid = save_ocr_version(project_dir, page['id'], 'ocr_corregido', text)
@@ -742,10 +759,14 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_info(title="Ortografía", message="Sin problemas detectados", parent=self.root)
             else:
-                messagebox.showinfo("Ortografía", "Sin problemas detectados")
+                messagebox.showinfo("Ortografía", "Sin problemas detectados", parent=self.root)
             return
         # Simple viewer
         top = tk.Toplevel(self.root); top.title("Revisión ortográfica")
+        try:
+            center_to_parent(top, self.root)
+        except Exception:
+            pass
         lb = tk.Listbox(top, width=120, height=20)
         lb.pack(fill=tk.BOTH, expand=True)
         for m in issues[:200]:
@@ -760,7 +781,7 @@ class AnnotationWindow:
         if Messagebox:
             Messagebox.show_info(title="Anotación", message="Función de anotación en implementación", parent=self.root)
         else:
-            messagebox.showinfo("Anotación", "Función de anotación en implementación")
+            messagebox.showinfo("Anotación", "Función de anotación en implementación", parent=self.root)
     
     def edit_annotation(self):
         """Edit selected annotation"""
@@ -780,7 +801,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_info(title="Importar", message=f"Importación desde {file_path} en implementación", parent=self.root)
             else:
-                messagebox.showinfo("Importar", f"Importación desde {file_path} en implementación")
+                messagebox.showinfo("Importar", f"Importación desde {file_path} en implementación", parent=self.root)
     
     def expand_abbreviations(self):
         """Expand abbreviations/glossary terms in corrected text."""
@@ -793,7 +814,7 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_warning(title="Glosario", message="No hay términos en el glosario", parent=self.root)
             else:
-                messagebox.showwarning("Glosario", "No hay términos en el glosario")
+                messagebox.showwarning("Glosario", "No hay términos en el glosario", parent=self.root)
             return
         txt = self.text_ocr_corrected.get('1.0', tk.END)
         hints = gm.apply_abbreviation_hints(txt, terms)
@@ -801,9 +822,9 @@ class AnnotationWindow:
             if Messagebox:
                 Messagebox.show_info(title="Expandir", message="No se encontraron abreviaturas para expandir", parent=self.root)
             else:
-                messagebox.showinfo("Expandir", "No se encontraron abreviaturas para expandir")
+                messagebox.showinfo("Expandir", "No se encontraron abreviaturas para expandir", parent=self.root)
             return
-        if not messagebox.askyesno("Expandir", f"Se encontraron {len(hints)} ocurrencias. ¿Aplicar expansión?"):
+        if not messagebox.askyesno("Expandir", f"Se encontraron {len(hints)} ocurrencias. ¿Aplicar expansión?", parent=self.root):
             return
         # Apply replacements (whole word)
         import re

@@ -18,6 +18,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.theme_titlebar import apply_titlebar_theme
+from utils.window_utils import center_to_parent
 from utils import app_config
 
 from utils.db_manager import list_projects
@@ -49,6 +50,16 @@ class ExportWindow:
         
         self.current_project = None
         self.create_ui()
+        # If window geometry not restored, center over parent if available
+        try:
+            geo = app_config.get_window_geometry("export")
+        except Exception:
+            geo = None
+        if not geo:
+            try:
+                center_to_parent(self.root, self.root.master if hasattr(self.root, 'master') else None)
+            except Exception:
+                pass
         self.load_projects()
     
     def create_ui(self):
@@ -226,7 +237,7 @@ class ExportWindow:
             if Messagebox:
                 Messagebox.show_error(title="Error", message=f"No se pudieron cargar proyectos:\n{str(e)}", parent=self.root)
             else:
-                messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}")
+                messagebox.showerror("Error", f"No se pudieron cargar proyectos:\n{str(e)}", parent=self.root)
     
     def on_close(self):
         try:
@@ -248,7 +259,7 @@ class ExportWindow:
             if Messagebox:
                 Messagebox.show_warning(title="Exportar", message="Seleccione un proyecto primero", parent=self.root)
             else:
-                messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
+                messagebox.showwarning("Exportar", "Seleccione un proyecto primero", parent=self.root)
             return None
         
         project_dir = Path(self.current_project['carpeta_raiz'])
@@ -270,11 +281,15 @@ class ExportWindow:
             if Messagebox:
                 Messagebox.show_warning(title="Exportar", message="Seleccione un proyecto primero", parent=self.root)
             else:
-                messagebox.showwarning("Exportar", "Seleccione un proyecto primero")
+                messagebox.showwarning("Exportar", "Seleccione un proyecto primero", parent=self.root)
             return
         
         # Ask for format
         format_dialog = tk.Toplevel(self.root)
+        try:
+            center_to_parent(format_dialog, self.root)
+        except Exception:
+            pass
         format_dialog.title("Formato Dublin Core")
         format_dialog.geometry("300x150")
         format_dialog.transient(self.root)
@@ -296,13 +311,13 @@ class ExportWindow:
                     if Messagebox:
                         Messagebox.show_info(title="Exportar", message=f"Dublin Core exportado a:\n{file_path}", parent=self.root)
                     else:
-                        messagebox.showinfo("Exportar", f"Dublin Core exportado a:\n{file_path}")
+                        messagebox.showinfo("Exportar", f"Dublin Core exportado a:\n{file_path}", parent=self.root)
                     self.status_bar['text'] = "Exportación Dublin Core completada"
                 except Exception as e:
                     if Messagebox:
                         Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
                     else:
-                        messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                        messagebox.showerror("Error", f"Error al exportar:\n{str(e)}", parent=self.root)
             
             format_dialog.destroy()
         
@@ -318,13 +333,13 @@ class ExportWindow:
                 if Messagebox:
                     Messagebox.show_info(title="Exportar", message=f"IIIF Manifest exportado a:\n{file_path}", parent=self.root)
                 else:
-                    messagebox.showinfo("Exportar", f"IIIF Manifest exportado a:\n{file_path}")
+                    messagebox.showinfo("Exportar", f"IIIF Manifest exportado a:\n{file_path}", parent=self.root)
                 self.status_bar['text'] = "Exportación IIIF completada"
             except Exception as e:
                 if Messagebox:
                     Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
                 else:
-                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}", parent=self.root)
     
     def export_tei(self):
         """Export to TEI-XML"""
@@ -335,13 +350,13 @@ class ExportWindow:
                 if Messagebox:
                     Messagebox.show_info(title="Exportar", message=f"TEI-XML exportado a:\n{file_path}", parent=self.root)
                 else:
-                    messagebox.showinfo("Exportar", f"TEI-XML exportado a:\n{file_path}")
+                    messagebox.showinfo("Exportar", f"TEI-XML exportado a:\n{file_path}", parent=self.root)
                 self.status_bar['text'] = "Exportación TEI completada"
             except Exception as e:
                 if Messagebox:
                     Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
                 else:
-                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}", parent=self.root)
     
     def export_geojson(self):
         """Export to GeoJSON"""
@@ -352,13 +367,13 @@ class ExportWindow:
                 if Messagebox:
                     Messagebox.show_info(title="Exportar", message=f"GeoJSON exportado a:\n{file_path}", parent=self.root)
                 else:
-                    messagebox.showinfo("Exportar", f"GeoJSON exportado a:\n{file_path}")
+                    messagebox.showinfo("Exportar", f"GeoJSON exportado a:\n{file_path}", parent=self.root)
                 self.status_bar['text'] = "Exportación GeoJSON completada"
             except Exception as e:
                 if Messagebox:
                     Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
                 else:
-                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}", parent=self.root)
     
     def export_pdf(self):
         """Export to PDF/A"""
@@ -369,13 +384,13 @@ class ExportWindow:
                 if Messagebox:
                     Messagebox.show_info(title="Exportar", message=f"PDF/A exportado a:\n{file_path}", parent=self.root)
                 else:
-                    messagebox.showinfo("Exportar", f"PDF/A exportado a:\n{file_path}")
+                    messagebox.showinfo("Exportar", f"PDF/A exportado a:\n{file_path}", parent=self.root)
                 self.status_bar['text'] = "Exportación PDF completada"
             except Exception as e:
                 if Messagebox:
                     Messagebox.show_error(title="Error", message=f"Error al exportar:\n{str(e)}", parent=self.root)
                 else:
-                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}")
+                    messagebox.showerror("Error", f"Error al exportar:\n{str(e)}", parent=self.root)
     
     def export_all(self):
         """Export to all formats"""
@@ -389,7 +404,8 @@ class ExportWindow:
         response = messagebox.askyesno(
             "Exportar Todo",
             "¿Desea exportar el proyecto a todos los formatos disponibles?\n\n"
-            "Esto creará archivos en la carpeta 'exports' del proyecto."
+            "Esto creará archivos en la carpeta 'exports' del proyecto.",
+            parent=self.root
         )
         
         if response:
@@ -398,7 +414,7 @@ class ExportWindow:
             if Messagebox:
                 Messagebox.show_info(title="Exportar", message="Exportación múltiple en implementación", parent=self.root)
             else:
-                messagebox.showinfo("Exportar", "Exportación múltiple en implementación")
+                messagebox.showinfo("Exportar", "Exportación múltiple en implementación", parent=self.root)
 
 
 if __name__ == "__main__":

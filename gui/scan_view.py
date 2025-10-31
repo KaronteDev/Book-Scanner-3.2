@@ -103,7 +103,7 @@ class ScannerWindow:
             self.reload_projects()
 
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo cargar el módulo:\n{str(e)}")
+            messagebox.showerror("Error", f"No se pudo cargar el módulo:\n{str(e)}", parent=self.root)
     
     def open_existing_scanner(self):
         """Launch the new modular scanner"""
@@ -119,7 +119,7 @@ class ScannerWindow:
             scanner_win = ScannerWindow(self.root, project_dir)
             
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo abrir el escáner:\n{str(e)}")
+            messagebox.showerror("Error", f"No se pudo abrir el escáner:\n{str(e)}", parent=self.root)
 
     # --- Project management ---
     def reload_projects(self):
@@ -133,7 +133,7 @@ class ScannerWindow:
                 self.project_combo.current(0)
                 self.on_project_selected(None)
         except Exception as e:
-            messagebox.showerror("Proyectos", f"Error listando proyectos: {e}")
+            messagebox.showerror("Proyectos", f"Error listando proyectos: {e}", parent=self.root)
 
     def on_project_selected(self, _):
         idx = self.project_combo.current()
@@ -142,6 +142,11 @@ class ScannerWindow:
 
     def new_project_dialog(self):
         win = tk.Toplevel(self.root)
+        try:
+            from utils.window_utils import center_to_parent
+            center_to_parent(win, self.root)
+        except Exception:
+            pass
         win.title("Nuevo proyecto")
         win.geometry("500x320")
         win.transient(self.root)
@@ -183,18 +188,18 @@ class ScannerWindow:
                 autor=var_autor.get().strip(),
                 fecha=var_fecha.get().strip(),
             )
-            messagebox.showinfo("Proyecto", f"Proyecto creado (ID {pid}) en:\n{root_dir}")
+            messagebox.showinfo("Proyecto", f"Proyecto creado (ID {pid}) en:\n{root_dir}", parent=self.root)
             win.destroy(); self.reload_projects()
         ttk.Button(btns, text="Crear", command=do_create).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btns, text="Cancelar", command=win.destroy).pack(side=tk.RIGHT)
 
     def sync_pages(self):
         if not getattr(self, 'current_project', None):
-            messagebox.showwarning("Sincronizar", "Seleccione un proyecto")
+            messagebox.showwarning("Sincronizar", "Seleccione un proyecto", parent=self.root)
             return
         root_dir = Path(self.current_project['carpeta_raiz'])
         inserted = sync_pages_from_folder(root_dir)
-        messagebox.showinfo("Sincronizar", f"Se agregaron {inserted} páginas nuevas a la base de datos")
+        messagebox.showinfo("Sincronizar", f"Se agregaron {inserted} páginas nuevas a la base de datos", parent=self.root)
 
     def open_project_folder(self):
         if not getattr(self, 'current_project', None):
@@ -208,7 +213,8 @@ class ScannerWindow:
                 import subprocess
                 subprocess.Popen(["xdg-open", str(folder)])
             except Exception:
-                messagebox.showinfo("Proyecto", str(folder))
+                messagebox.showinfo("Proyecto", str(folder), parent=self.root)
+                
 
 
 if __name__ == "__main__":
