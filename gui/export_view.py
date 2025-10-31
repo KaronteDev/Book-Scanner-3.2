@@ -4,11 +4,15 @@
 export_view.py — Export module for academic formats
 """
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox
 try:
+    import ttkbootstrap as ttk
     from ttkbootstrap.dialogs import Messagebox
+    USE_BOOTSTRAP = True
 except ImportError:
+    from tkinter import ttk
     Messagebox = None
+    USE_BOOTSTRAP = False
 from pathlib import Path
 import sys
 

@@ -15,9 +15,9 @@ except Exception:  # pragma: no cover
 
 # Optional: ttkbootstrap for theme colors
 try:
-    import ttkbootstrap as ttkb  # type: ignore
+    import ttkbootstrap as ttk  # type: ignore
 except Exception:
-    ttkb = None  # type: ignore
+    ttk = None  # type: ignore
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -38,10 +38,10 @@ def _relative_luminance(hex_color: str) -> float:
 
 
 def _get_ttkb_colors() -> Optional[object]:
-    if ttkb is None:
+    if ttk is None:
         return None
     try:
-        style = ttkb.Style()
+        style = ttk.Style()
         # Access color palette object
         return getattr(style, 'colors', None)
     except Exception:

@@ -65,7 +65,8 @@
     "show_tooltips": true,
     "confirm_actions": true,
     "window_geometry": {
-      "main": "600x550+1420+445"
+      "main": "600x550+1420+445",
+      "scanner": "1988x930+694+34"
     }
   },
   "api": {

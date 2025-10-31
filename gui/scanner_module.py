@@ -5,11 +5,15 @@ scanner_module.py — Core camera scanning functionality
 Extracted from gui_book_scan_tk2.py and refactored for modular integration
 """
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, colorchooser
+from tkinter import messagebox, filedialog, colorchooser
 try:
+    import ttkbootstrap as ttk
     from ttkbootstrap.dialogs import Messagebox
+    USE_BOOTSTRAP = True
 except ImportError:
+    from tkinter import ttk
     Messagebox = None
+    USE_BOOTSTRAP = False
 try:
     import pywinstyles
 except ImportError:
@@ -25,6 +29,11 @@ import json
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.theme_titlebar import apply_titlebar_theme
 from utils import app_config
+from utils import db_manager as db
+try:
+    from gui.metadata_manager import open_metadata_manager
+except Exception:
+    open_metadata_manager = None
 
 try:
     import cv2
@@ -172,6 +181,10 @@ class CameraScanner:
         buttons_frame.pack(fill=tk.X)
         ttk.Button(buttons_frame, text="📸 Capturar (Espacio)", command=self.capture_image).pack(side=tk.LEFT, padx=5)
         ttk.Button(buttons_frame, text="📂 Abrir carpeta", command=self.open_output_folder).pack(side=tk.LEFT, padx=5)
+        ttk.Separator(buttons_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        ttk.Button(buttons_frame, text="📁 Seleccionar Proyecto…", command=self._select_project).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="➕ Crear Proyecto", command=self._create_project).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="⚙️ Tablas…", command=lambda: (open_metadata_manager(self.parent, focus_tab='archivos') if open_metadata_manager else None)).pack(side=tk.LEFT, padx=5)
 
         # --- Gallery (right panel) ---
         # High-contrast scrollbar style (best effort; some themes may ignore)
@@ -236,6 +249,8 @@ class CameraScanner:
         self._show_camera_off_screen()
         # Ensure resize controls reflect current toggle
         self._toggle_resize_controls()
+        # Current project
+        self.current_project = None
 
     def _restore_ui_prefs(self):
         """Restore window geometry, paned sash and UI options if saved previously"""
@@ -1841,6 +1856,65 @@ class CameraScanner:
                 Messagebox.show_error(title="Error", message=f"No se pudo abrir carpeta: {e}", parent=self.root)
             else:
                 messagebox.showerror("Error", f"No se pudo abrir carpeta: {e}")
+
+    # --- Project integration ---
+    def _select_project(self):
+        """Small selector for project to direct captured images into its 'paginas' folder."""
+        top = tk.Toplevel(self.parent); top.title("Seleccionar Proyecto"); top.geometry("520x160"); top.transient(self.parent); top.grab_set()
+        ttk.Label(top, text="Proyecto:").pack(anchor='w', padx=10, pady=(12,4))
+        combo = ttk.Combobox(top, state='readonly', width=60)
+        combo.pack(fill=tk.X, padx=10)
+        base = app_config.get_root_dir()
+        rows = db.list_projects(base)
+        combo['values'] = [f"{r['id']} · {r['titulo']}" for r in rows]
+        if rows:
+            combo.current(0)
+        btns = ttk.Frame(top); btns.pack(fill=tk.X, padx=10, pady=10)
+        def _apply():
+            if not rows or not combo.get():
+                top.destroy(); return
+            pid = int(combo.get().split('·',1)[0])
+            row = next((r for r in rows if int(r['id'])==pid), None)
+            if not row:
+                top.destroy(); return
+            self.current_project = row
+            self._set_output_dir(Path(row['carpeta_raiz']) / 'paginas')
+            top.destroy()
+        ttk.Button(btns, text="Cancelar", command=top.destroy).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btns, text="Usar", command=_apply).pack(side=tk.RIGHT, padx=6)
+
+    def _create_project(self):
+        """Open project editor to create a new project"""
+        if open_metadata_manager:
+            # Import EditorProyecto directly
+            try:
+                from gui.metadata_manager import EditorProyecto
+                from utils import app_config
+                base_path = app_config.get_root_dir()
+                
+                # Open project editor in create mode (project_id=None)
+                def on_project_saved():
+                    # Optionally refresh project list or perform other actions
+                    pass
+                
+                EditorProyecto(self.parent, base_path=base_path, project_id=None, on_saved=on_project_saved)
+            except Exception as e:
+                print(f"Error opening project editor: {e}")
+                # Fallback to opening metadata manager
+                open_metadata_manager(self.parent, focus_tab='proyectos')
+
+    def _set_output_dir(self, new_dir: Path):
+        """Change output directory and reload gallery and prefs path."""
+        try:
+            self.output_dir = new_dir
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            self._prefs_path = self.output_dir / "_ui_prefs.json"
+            # Reload gallery state
+            self._gallery_order = []
+            self._thumb_cache = {}
+            self._load_gallery_manifest(); self._build_gallery()
+        except Exception as e:
+            print(f"Failed to set output dir: {e}")
     
     def cleanup(self):
         """Cleanup resources"""

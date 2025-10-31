@@ -9,11 +9,13 @@ import sys
 import tkinter as tk
 from tkinter import messagebox
 try:
-    import ttkbootstrap as ttkb
+    import ttkbootstrap as ttk
     from ttkbootstrap.dialogs import Messagebox
+    USE_BOOTSTRAP = True
 except ImportError:
-    ttkb = None
+    from tkinter import ttk
     Messagebox = None
+    USE_BOOTSTRAP = False
 from pathlib import Path
 import socket
 import tempfile
@@ -113,167 +115,188 @@ class ModuleSelectorApp:
     def create_widgets(self):
         """Create the UI elements"""
         # Header
-        header_frame = (ttkb.Frame(self.root, padding=20) if ttkb else tk.Frame(self.root, padx=20, pady=20))
+        header_frame = ttk.Frame(self.root, padding=20) if USE_BOOTSTRAP else tk.Frame(self.root, padx=20, pady=20)
         header_frame.pack(fill=tk.X)
 
-        title_label = (ttkb.Label(
+        title_label = ttk.Label(
             header_frame,
             text=f"{APP_NAME} {APP_VERSION}",
             font=("Open Sans", 18, "bold")
-        ) if ttkb else tk.Label(
+        ) if USE_BOOTSTRAP else tk.Label(
             header_frame,
             text=f"{APP_NAME} {APP_VERSION}",
             font=("Open Sans", 18, "bold")
-        ))
+        )
         title_label.pack()
 
-        subtitle_label = (ttkb.Label(
+        subtitle_label = ttk.Label(
             header_frame,
             text="Sistema Avanzado de Digitalización y Anotación Documental",
             font=("Open Sans", 10)
-        ) if ttkb else tk.Label(
+        ) if USE_BOOTSTRAP else tk.Label(
             header_frame,
             text="Sistema Avanzado de Digitalización y Anotación Documental",
             font=("Open Sans", 10)
-        ))
+        )
         subtitle_label.pack()
 
         # Separator
-        if ttkb:
-            ttkb.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=20, pady=10)
+        if USE_BOOTSTRAP:
+            ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=20, pady=10)
         else:
             tk.Frame(self.root, height=2, bg="gray").pack(fill=tk.X, padx=20, pady=10)
 
         # Module selection frame
-        modules_frame = (ttkb.Frame(self.root, padding=20) if ttkb else tk.Frame(self.root, padx=20, pady=20))
+        modules_frame = ttk.Frame(self.root, padding=20) if USE_BOOTSTRAP else tk.Frame(self.root, padx=20, pady=20)
         modules_frame.pack(fill=tk.BOTH, expand=True)
 
-        modules_label = (ttkb.Label(
+        modules_label = ttk.Label(
             modules_frame,
             text="Seleccione un módulo:",
             font=("Open Sans", 12, "bold")
-        ) if ttkb else tk.Label(
+        ) if USE_BOOTSTRAP else tk.Label(
             modules_frame,
             text="Seleccione un módulo:",
             font=("Open Sans", 12, "bold")
-        ))
+        )
         modules_label.pack(pady=(0, 15))
 
         # Module buttons
-        btn_scanner = (ttkb.Button(
+        btn_scanner = ttk.Button(
             modules_frame,
             text="📸 Módulo de Escaneo",
             command=self.open_scanner,
             width=30,
-            bootstyle="primary"
-        ) if ttkb else tk.Button(
+            bootstyle="primary" if USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Button(
             modules_frame,
             text="📸 Módulo de Escaneo",
             command=self.open_scanner,
             width=30
-        ))
+        )
         btn_scanner.pack(pady=5)
 
-        (ttkb.Label(
+        label1 = ttk.Label(
+            modules_frame,
+            text="Captura y procesamiento de imágenes",
+            font=("Open Sans", 8),
+            foreground="gray" if not USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Label(
             modules_frame,
             text="Captura y procesamiento de imágenes",
             font=("Open Sans", 8),
             foreground="gray"
-        ) if ttkb else tk.Label(
-            modules_frame,
-            text="Captura y procesamiento de imágenes",
-            font=("Open Sans", 8),
-            foreground="gray"
-        )).pack()
+        )
+        label1.pack()
 
-        btn_annotation = (ttkb.Button(
+        btn_annotation = ttk.Button(
             modules_frame,
             text="📝 Módulo de Anotación y OCR",
             command=self.open_annotation,
             width=30,
-            bootstyle="info"
-        ) if ttkb else tk.Button(
+            bootstyle="info" if USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Button(
             modules_frame,
             text="📝 Módulo de Anotación y OCR",
             command=self.open_annotation,
             width=30
-        ))
+        )
         btn_annotation.pack(pady=(15, 5))
 
-        (ttkb.Label(
+        label2 = ttk.Label(
+            modules_frame,
+            text="Transcripción, corrección y anotación académica",
+            font=("Open Sans", 8),
+            foreground="gray" if not USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Label(
             modules_frame,
             text="Transcripción, corrección y anotación académica",
             font=("Open Sans", 8),
             foreground="gray"
-        ) if ttkb else tk.Label(
-            modules_frame,
-            text="Transcripción, corrección y anotación académica",
-            font=("Open Sans", 8),
-            foreground="gray"
-        )).pack()
+        )
+        label2.pack()
 
-        btn_export = (ttkb.Button(
+        btn_export = ttk.Button(
             modules_frame,
             text="📦 Módulo de Exportación",
             command=self.open_export,
             width=30,
-            bootstyle="success"
-        ) if ttkb else tk.Button(
+            bootstyle="success" if USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Button(
             modules_frame,
             text="📦 Módulo de Exportación",
             command=self.open_export,
             width=30
-        ))
+        )
         btn_export.pack(pady=(15, 5))
 
-        (ttkb.Label(
+        label3 = ttk.Label(
+            modules_frame,
+            text="Dublin Core, IIIF, TEI-XML, GeoJSON",
+            font=("Open Sans", 8),
+            foreground="gray" if not USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Label(
             modules_frame,
             text="Dublin Core, IIIF, TEI-XML, GeoJSON",
             font=("Open Sans", 8),
             foreground="gray"
-        ) if ttkb else tk.Label(
+        )
+        label3.pack()
+
+        # Metadata manager button
+        btn_meta = ttk.Button(
             modules_frame,
-            text="Dublin Core, IIIF, TEI-XML, GeoJSON",
-            font=("Open Sans", 8),
-            foreground="gray"
-        )).pack()
+            text="📁 Proyectos y Metadatos",
+            command=self.open_metadata_manager,
+            width=30,
+            bootstyle="secondary" if USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Button(
+            modules_frame,
+            text="📁 Proyectos y Metadatos",
+            command=self.open_metadata_manager,
+            width=30
+        )
+        btn_meta.pack(pady=(20, 5))
 
         # Footer
-        footer_frame = (ttkb.Frame(self.root, padding=10) if ttkb else tk.Frame(self.root, padx=10, pady=10))
+        footer_frame = ttk.Frame(self.root, padding=10) if USE_BOOTSTRAP else tk.Frame(self.root, padx=10, pady=10)
         footer_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-        (ttkb.Button(
+        btn_settings = ttk.Button(
             footer_frame,
             text="⚙️ Configuración",
             command=self.open_settings,
-            bootstyle="secondary"
-        ) if ttkb else tk.Button(
+            bootstyle="secondary" if USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Button(
             footer_frame,
             text="⚙️ Configuración",
             command=self.open_settings
-        )).pack(side=tk.LEFT, padx=5)
+        )
+        btn_settings.pack(side=tk.LEFT, padx=5)
 
-        (ttkb.Button(
+        btn_help = ttk.Button(
             footer_frame,
             text="❓ Ayuda",
             command=self.open_help,
-            bootstyle="secondary"
-        ) if ttkb else tk.Button(
+            bootstyle="secondary" if USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Button(
             footer_frame,
             text="❓ Ayuda",
             command=self.open_help
-        )).pack(side=tk.LEFT, padx=5)
+        )
+        btn_help.pack(side=tk.LEFT, padx=5)
 
-        (ttkb.Button(
+        btn_exit = ttk.Button(
             footer_frame,
             text="Salir",
             command=self.root.quit,
-            bootstyle="danger"
-        ) if ttkb else tk.Button(
+            bootstyle="danger" if USE_BOOTSTRAP else None
+        ) if USE_BOOTSTRAP else tk.Button(
             footer_frame,
             text="Salir",
             command=self.root.quit
-        )).pack(side=tk.RIGHT, padx=5)
+        )
+        btn_exit.pack(side=tk.RIGHT, padx=5)
     
     def init_database(self):
         """Initialize global database"""
@@ -303,7 +326,7 @@ class ModuleSelectorApp:
         """Launch annotation/OCR module"""
         try:
             from gui.annotation_view import AnnotationWindow
-            annotation_win = ttkb.Toplevel(self.root) if ttkb else tk.Toplevel(self.root)
+            annotation_win = ttk.Toplevel(self.root) if USE_BOOTSTRAP else tk.Toplevel(self.root)
             AnnotationWindow(annotation_win)
         except Exception as e:
             if Messagebox:
@@ -322,7 +345,7 @@ class ModuleSelectorApp:
         """Launch export module"""
         try:
             from gui.export_view import ExportWindow
-            export_win = ttkb.Toplevel(self.root) if ttkb else tk.Toplevel(self.root)
+            export_win = ttk.Toplevel(self.root) if USE_BOOTSTRAP else tk.Toplevel(self.root)
             ExportWindow(export_win)
         except Exception as e:
             if Messagebox:
@@ -339,7 +362,7 @@ class ModuleSelectorApp:
     
     def open_settings(self):
         """Open settings dialog with live preview and persistence"""
-        if open_settings_dialog and ttkb:
+        if open_settings_dialog and USE_BOOTSTRAP:
             def on_applied(theme_name, root_dir_path, apply_all=False):
                 # Refrescar barra de título de ventanas hijas abiertas
                 try:
@@ -383,6 +406,20 @@ class ModuleSelectorApp:
                     "Configuración",
                     "Para configurar tema y directorio raíz, edite data/app_config.json"
                 )
+
+    def open_metadata_manager(self):
+        try:
+            from gui.metadata_manager import MetadataManager
+            MetadataManager(self.root)
+        except Exception as e:
+            if Messagebox:
+                Messagebox.show_error(
+                    message=f"No se pudo abrir la gestión de metadatos:\n{str(e)}",
+                    title="Error",
+                    parent=self.root
+                )
+            else:
+                messagebox.showerror("Error", f"No se pudo abrir la gestión de metadatos:\n{str(e)}")
     
     def open_help(self):
         """Open help/documentation"""
@@ -419,13 +456,13 @@ def main():
         root_temp.destroy()
         sys.exit(1)
     
-    if ttkb:
+    if USE_BOOTSTRAP:
         # Lee el tema desde la configuración con reserva a 'superhero'
         chosen = app_config.get_theme("superhero")
         try:
-            root = ttkb.Window(themename=chosen)
+            root = ttk.Window(themename=chosen)
         except Exception:
-            root = ttkb.Window(themename="superhero")
+            root = ttk.Window(themename="superhero")
     else:
         root = tk.Tk()
     # Aplicar preferencias de UI (tamaño de fuente)

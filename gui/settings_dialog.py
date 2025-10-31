@@ -6,18 +6,24 @@ settings_dialog.py — Diálogo de configuración con pestañas para todos los a
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog
 try:
-    import ttkbootstrap as ttkb
+    import ttkbootstrap as ttk
     from ttkbootstrap.dialogs import Messagebox
+    USE_BOOTSTRAP = True
 except ImportError:  # Fallbacks
-    ttkb = None
+    from tkinter import ttk
     Messagebox = None
+    USE_BOOTSTRAP = False
 
 from pathlib import Path
 
 from utils.theme_titlebar import apply_titlebar_theme
 from utils import app_config
+try:
+    from utils import db_manager as db
+except Exception:
+    db = None
 
 
 class SettingsDialog(tk.Toplevel):
@@ -34,7 +40,7 @@ class SettingsDialog(tk.Toplevel):
         self.config = app_config.load_config() or {}
         
         # Contenedor principal
-        main_container = (ttkb.Frame(self, padding=10) if ttkb else tk.Frame(self, padx=10, pady=10))
+        main_container = ttk.Frame(self, padding=10) if USE_BOOTSTRAP else tk.Frame(self, padx=10, pady=10)
         main_container.pack(fill=tk.BOTH, expand=True)
 
         # Crear notebook (pestañas)
@@ -51,15 +57,13 @@ class SettingsDialog(tk.Toplevel):
         self._create_ui_tab()
 
         # Botonera inferior
-        btns_frame = (ttkb.Frame(main_container) if ttkb else tk.Frame(main_container))
+        btns_frame = ttk.Frame(main_container) if USE_BOOTSTRAP else tk.Frame(main_container)
         btns_frame.pack(fill=tk.X, pady=(10, 0))
         
-        apply_btn = (ttkb.Button(btns_frame, text="Aplicar", bootstyle="primary", command=self.apply_changes)
-                     if ttkb else tk.Button(btns_frame, text="Aplicar", command=self.apply_changes))
+        apply_btn = ttk.Button(btns_frame, text="Aplicar", command=self.apply_changes, bootstyle="primary" if USE_BOOTSTRAP else None) if USE_BOOTSTRAP else tk.Button(btns_frame, text="Aplicar", command=self.apply_changes)
         apply_btn.pack(side=tk.RIGHT, padx=5)
         
-        cancel_btn = (ttkb.Button(btns_frame, text="Cancelar", bootstyle="secondary", command=self.destroy)
-                      if ttkb else tk.Button(btns_frame, text="Cancelar", command=self.destroy))
+        cancel_btn = ttk.Button(btns_frame, text="Cancelar", command=self.destroy, bootstyle="secondary" if USE_BOOTSTRAP else None) if USE_BOOTSTRAP else tk.Button(btns_frame, text="Cancelar", command=self.destroy)
         cancel_btn.pack(side=tk.RIGHT)
 
         # Aplicar estilo de barra de título
@@ -101,7 +105,7 @@ class SettingsDialog(tk.Toplevel):
         """Crea un frame con scrollbar"""
         canvas = tk.Canvas(parent)
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = (ttkb.Frame(canvas, padding=15) if ttkb else tk.Frame(canvas, padx=15, pady=15))
+        scrollable_frame = ttk.Frame(canvas, padding=15) if USE_BOOTSTRAP else tk.Frame(canvas, padx=15, pady=15)
         
         scrollable_frame.bind(
             "<Configure>",
@@ -161,21 +165,19 @@ class SettingsDialog(tk.Toplevel):
         # Resolución por defecto
         self._add_label(frame, "Resolución por defecto:", bold=True)
         default_res = camera_cfg.get("default_resolution", [1920, 1080])
-        res_frame = (ttkb.Frame(frame) if ttkb else tk.Frame(frame))
+        res_frame = ttk.Frame(frame) if USE_BOOTSTRAP else tk.Frame(frame)
         res_frame.pack(fill=tk.X, pady=(2, 5))
         
         # Ancho
-        (ttkb.Label(res_frame, text="Ancho:", width=10) if ttkb else tk.Label(res_frame, text="Ancho:", width=10)).pack(side=tk.LEFT, padx=(0, 5))
+        (ttk.Label(res_frame, text="Ancho:", width=10) if USE_BOOTSTRAP else tk.Label(res_frame, text="Ancho:", width=10)).pack(side=tk.LEFT, padx=(0, 5))
         self.camera_width_var = tk.IntVar(value=default_res[0])
-        width_spin = (ttkb.Spinbox(res_frame, from_=640, to=7680, textvariable=self.camera_width_var, width=10, increment=1)
-                      if ttkb else tk.Spinbox(res_frame, from_=640, to=7680, textvariable=self.camera_width_var, width=10, increment=1))
+        width_spin = ttk.Spinbox(res_frame, from_=640, to=7680, textvariable=self.camera_width_var, width=10, increment=1) if USE_BOOTSTRAP else tk.Spinbox(res_frame, from_=640, to=7680, textvariable=self.camera_width_var, width=10, increment=1)
         width_spin.pack(side=tk.LEFT, padx=5)
         
         # Alto
-        (ttkb.Label(res_frame, text="Alto:", width=10) if ttkb else tk.Label(res_frame, text="Alto:", width=10)).pack(side=tk.LEFT, padx=(20, 5))
+        (ttk.Label(res_frame, text="Alto:", width=10) if USE_BOOTSTRAP else tk.Label(res_frame, text="Alto:", width=10)).pack(side=tk.LEFT, padx=(20, 5))
         self.camera_height_var = tk.IntVar(value=default_res[1])
-        height_spin = (ttkb.Spinbox(res_frame, from_=480, to=4320, textvariable=self.camera_height_var, width=10, increment=1)
-                       if ttkb else tk.Spinbox(res_frame, from_=480, to=4320, textvariable=self.camera_height_var, width=10, increment=1))
+        height_spin = ttk.Spinbox(res_frame, from_=480, to=4320, textvariable=self.camera_height_var, width=10, increment=1) if USE_BOOTSTRAP else tk.Spinbox(res_frame, from_=480, to=4320, textvariable=self.camera_height_var, width=10, increment=1)
         height_spin.pack(side=tk.LEFT, padx=5)
         
         # Calidad de captura
@@ -329,7 +331,7 @@ class SettingsDialog(tk.Toplevel):
         
         # Tema
         self._add_label(frame, "Tema de interfaz:", bold=True)
-        self.style = (self.master.style if hasattr(self.master, 'style') else (ttkb.Style() if ttkb else None))
+        self.style = (self.master.style if hasattr(self.master, 'style') else (ttk.Style() if USE_BOOTSTRAP else None))
         themes = []
         if self.style:
             try:
@@ -342,13 +344,12 @@ class SettingsDialog(tk.Toplevel):
         theme_frame = self._add_frame(frame)
         combo = self._add_combobox(theme_frame, self.ui_theme_var, themes)
         combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        preview_btn = (ttkb.Button(theme_frame, text="Previsualizar", bootstyle="secondary", command=self.preview_theme) 
-                      if ttkb else tk.Button(theme_frame, text="Previsualizar", command=self.preview_theme))
+        preview_btn = ttk.Button(theme_frame, text="Previsualizar", command=self.preview_theme, bootstyle="secondary" if USE_BOOTSTRAP else None) if USE_BOOTSTRAP else tk.Button(theme_frame, text="Previsualizar", command=self.preview_theme)
         preview_btn.pack(side=tk.LEFT, padx=5)
         
         # Preview area
         self._add_label(frame, "Vista previa:", bold=True)
-        self.preview_frame = (ttkb.Labelframe(frame, text="Ejemplo", padding=10) if ttkb else tk.LabelFrame(frame, text="Ejemplo", padx=10, pady=10))
+        self.preview_frame = ttk.Labelframe(frame, text="Ejemplo", padding=10) if USE_BOOTSTRAP else tk.LabelFrame(frame, text="Ejemplo", padx=10, pady=10)
         self.preview_frame.pack(fill=tk.X, pady=(5, 10))
         self._build_preview(self.preview_frame)
         
@@ -378,55 +379,52 @@ class SettingsDialog(tk.Toplevel):
     # Métodos auxiliares para crear widgets
     def _add_label(self, parent, text, bold=False):
         font = ("Open Sans", 10, "bold") if bold else ("Open Sans", 10)
-        lbl = (ttkb.Label(parent, text=text, font=font) if ttkb else tk.Label(parent, text=text, font=font))
+        lbl = (ttk.Label(parent, text=text, font=font) if USE_BOOTSTRAP else tk.Label(parent, text=text, font=font))
         lbl.pack(anchor=tk.W, pady=(8, 2))
         return lbl
 
     def _add_frame(self, parent):
-        frame = (ttkb.Frame(parent) if ttkb else tk.Frame(parent))
+        frame = ttk.Frame(parent) if USE_BOOTSTRAP else tk.Frame(parent)
         frame.pack(fill=tk.X, pady=(2, 5))
         return frame
 
     def _add_entry(self, parent, var):
-        entry = (ttkb.Entry(parent, textvariable=var) if ttkb else tk.Entry(parent, textvariable=var))
+        entry = ttk.Entry(parent, textvariable=var) if USE_BOOTSTRAP else tk.Entry(parent, textvariable=var)
         entry.pack(fill=tk.X, pady=(2, 5))
         return entry
 
     def _add_entry_with_browse(self, parent, var, command):
         frame = self._add_frame(parent)
-        entry = (ttkb.Entry(frame, textvariable=var, width=60) if ttkb else tk.Entry(frame, textvariable=var, width=60))
+        entry = ttk.Entry(frame, textvariable=var, width=60) if USE_BOOTSTRAP else tk.Entry(frame, textvariable=var, width=60)
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        btn = (ttkb.Button(frame, text="Examinar…", command=command, bootstyle="secondary", width=12)
-               if ttkb else tk.Button(frame, text="Examinar…", command=command, width=12))
+        btn = ttk.Button(frame, text="Examinar…", command=command, width=12, bootstyle="secondary" if USE_BOOTSTRAP else None) if USE_BOOTSTRAP else tk.Button(frame, text="Examinar…", command=command, width=12)
         btn.pack(side=tk.LEFT, padx=5)
         return frame
 
     def _add_combobox(self, parent, var, values):
-        combo = (ttkb.Combobox(parent, textvariable=var, values=values, state="readonly")
-                 if ttkb else ttk.Combobox(parent, textvariable=var, values=values, state="readonly"))
+        combo = ttk.Combobox(parent, textvariable=var, values=values, state="readonly")
         combo.pack(fill=tk.X, pady=(2, 5))
         return combo
 
     def _add_spinbox(self, parent, var, from_, to, increment=1):
-        spinbox = (ttkb.Spinbox(parent, from_=from_, to=to, textvariable=var, increment=increment)
-                   if ttkb else tk.Spinbox(parent, from_=from_, to=to, textvariable=var, increment=increment))
+        spinbox = ttk.Spinbox(parent, from_=from_, to=to, textvariable=var, increment=increment) if USE_BOOTSTRAP else tk.Spinbox(parent, from_=from_, to=to, textvariable=var, increment=increment)
         spinbox.pack(fill=tk.X, pady=(2, 5))
         return spinbox
 
     def _add_checkbutton(self, parent, text, var):
-        cb = (ttkb.Checkbutton(parent, text=text, variable=var) if ttkb else tk.Checkbutton(parent, text=text, variable=var))
+        cb = ttk.Checkbutton(parent, text=text, variable=var) if USE_BOOTSTRAP else tk.Checkbutton(parent, text=text, variable=var)
         cb.pack(anchor=tk.W, pady=(2, 5))
         return cb
 
     def _build_preview(self, parent):
         """Construye la vista previa del tema"""
-        (ttkb.Label(parent, text="Texto de ejemplo") if ttkb else tk.Label(parent, text="Texto de ejemplo")).pack(anchor=tk.W)
-        row = (ttkb.Frame(parent) if ttkb else tk.Frame(parent))
+        (ttk.Label(parent, text="Texto de ejemplo") if USE_BOOTSTRAP else tk.Label(parent, text="Texto de ejemplo")).pack(anchor=tk.W)
+        row = ttk.Frame(parent) if USE_BOOTSTRAP else tk.Frame(parent)
         row.pack(fill=tk.X, pady=(6, 0))
-        (ttkb.Button(row, text="Primario", bootstyle="primary") if ttkb else tk.Button(row, text="Primario")).pack(side=tk.LEFT, padx=3)
-        (ttkb.Button(row, text="Info", bootstyle="info") if ttkb else tk.Button(row, text="Info")).pack(side=tk.LEFT, padx=3)
-        (ttkb.Button(row, text="Éxito", bootstyle="success") if ttkb else tk.Button(row, text="Éxito")).pack(side=tk.LEFT, padx=3)
-        (ttkb.Button(row, text="Peligro", bootstyle="danger") if ttkb else tk.Button(row, text="Peligro")).pack(side=tk.LEFT, padx=3)
+        (ttk.Button(row, text="Primario", bootstyle="primary") if USE_BOOTSTRAP else tk.Button(row, text="Primario")).pack(side=tk.LEFT, padx=3)
+        (ttk.Button(row, text="Info", bootstyle="info") if USE_BOOTSTRAP else tk.Button(row, text="Info")).pack(side=tk.LEFT, padx=3)
+        (ttk.Button(row, text="Éxito", bootstyle="success") if USE_BOOTSTRAP else tk.Button(row, text="Éxito")).pack(side=tk.LEFT, padx=3)
+        (ttk.Button(row, text="Peligro", bootstyle="danger") if USE_BOOTSTRAP else tk.Button(row, text="Peligro")).pack(side=tk.LEFT, padx=3)
 
     def _browse_directory(self, var):
         """Abre un diálogo para seleccionar directorio y actualiza la variable"""
@@ -436,7 +434,7 @@ class SettingsDialog(tk.Toplevel):
 
     def preview_theme(self):
         """Previsualiza el tema seleccionado"""
-        if not ttkb or not self.style:
+        if not USE_BOOTSTRAP or not self.style:
             if Messagebox:
                 Messagebox.show_info(message="La previsualización de tema requiere ttkbootstrap.", title="Información", parent=self)
             return
@@ -518,11 +516,19 @@ class SettingsDialog(tk.Toplevel):
                 return
             
             # Guardar el directorio raíz
-            app_config.set_root_dir(Path(self.root_dir_var.get()))
+            root_dir = Path(self.root_dir_var.get())
+            app_config.set_root_dir(root_dir)
+            # Persistir también en GeoDocs.db (tabla settings)
+            try:
+                if db is not None:
+                    base = app_config.get_root_dir()
+                    db.set_setting(base, 'root_dir', str(root_dir))
+            except Exception:
+                pass
             
             # Validar y aplicar el tema
             theme = self.ui_theme_var.get().strip()
-            if ttkb and self.style:
+            if USE_BOOTSTRAP and self.style:
                 try:
                     self.style.theme_use(theme)
                     if isinstance(self.parent, (tk.Tk, tk.Toplevel)):

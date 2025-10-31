@@ -4,11 +4,15 @@
 annotation_view.py — Annotation and OCR module
 """
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext
 try:
+    import ttkbootstrap as ttk
     from ttkbootstrap.dialogs import Messagebox
+    USE_BOOTSTRAP = True
 except ImportError:
+    from tkinter import ttk
     Messagebox = None
+    USE_BOOTSTRAP = False
 try:
     import pywinstyles
 except ImportError:
@@ -39,6 +43,10 @@ from modules import glossary_manager as gm
 from modules import diff_engine as de
 from utils.theme_titlebar import apply_titlebar_theme
 from utils import app_config
+try:
+    from gui.metadata_manager import open_metadata_manager
+except Exception:
+    open_metadata_manager = None
 
 
 class AnnotationWindow:
@@ -89,6 +97,16 @@ class AnnotationWindow:
             toolbar,
             text="📂 Abrir Proyecto",
             command=self.load_projects
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            toolbar,
+            text="✏️ Metadatos",
+            command=self.edit_current_project
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            toolbar,
+            text="⚙️ Tablas…",
+            command=lambda: (open_metadata_manager(self.root, focus_tab='archivos') if open_metadata_manager else None)
         ).pack(side=tk.LEFT, padx=5)
         
         self.lang_var = tk.StringVar(value="spa")
@@ -563,6 +581,14 @@ class AnnotationWindow:
             # Ensure DB reflects folder pages, then load
             self.sync_pages()
             self.load_pages()
+
+    def edit_current_project(self):
+        if not self.current_project:
+            return
+        if open_metadata_manager:
+            open_metadata_manager(self.root, focus_tab='proyectos', edit_project_id=int(self.current_project.get('id')))
+            # Refresh list as metadata might have changed
+            self.load_projects()
     
     def load_pages(self):
         """Load pages metadata from project.db and show first page"""
