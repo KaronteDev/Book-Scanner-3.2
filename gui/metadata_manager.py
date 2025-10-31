@@ -19,6 +19,23 @@ except ImportError:
 
 from pathlib import Path
 from typing import Optional, Dict, Any
+import io
+import threading
+import base64
+try:
+    from tkinterweb import HtmlFrame as _HtmlFrame
+    HAS_TKINTERWEB = True
+except Exception:
+    _HtmlFrame = None
+    HAS_TKINTERWEB = False
+
+try:
+    from PIL import Image, ImageTk, ImageDraw
+except Exception:
+    Image = None
+    ImageTk = None
+    ImageDraw = None
+import requests
 
 from utils.theme_titlebar import apply_titlebar_theme
 from utils import app_config
@@ -248,6 +265,7 @@ class MetadataManager(tk.Toplevel):
         ttk.Button(top, text="➕ Nuevo", command=self._new_project).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="✏️ Editar", command=self._edit_selected_project).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="🗑 Eliminar", command=self._delete_selected_project).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="🗑 Eliminar seleccionados", command=self._delete_selected_projects_bulk).pack(side=tk.LEFT, padx=3)
         # ttk.Button(top, text="⚙️ Tablas (Archivos/Fondos/Etiquetas)", command=lambda: self.nb.select(1)).pack(side=tk.LEFT, padx=10)
 
         # Search bar
@@ -258,7 +276,7 @@ class MetadataManager(tk.Toplevel):
         ttk.Entry(search_frame, textvariable=self.var_search_proj, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         cols = ("id","titulo","signatura","tipo","autor","tema","etiquetas","fecha","fondo","archivo","carpeta")
-        self.tree_proj = ttk.Treeview(tab, columns=cols, show="headings")
+        self.tree_proj = ttk.Treeview(tab, columns=cols, show="headings", selectmode='extended')
         headers = {
             "id": "ID","titulo":"Título","signatura":"Signatura","tipo":"Tipo","autor":"Autor","tema":"Tema",
             "etiquetas":"Etiquetas","fecha":"Fecha","fondo":"Fondo","archivo":"Archivo","carpeta":"Carpeta"
@@ -266,7 +284,11 @@ class MetadataManager(tk.Toplevel):
         for c in cols:
             self.tree_proj.heading(c, text=headers[c])
             self.tree_proj.column(c, width=120 if c not in ("titulo","carpeta") else 220, anchor=tk.W)
-        self.tree_proj.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+        self.tree_proj.pack(fill=tk.BOTH, expand=True, padx=8, pady=(6,0))
+        # Horizontal scrollbar
+        proj_hsb = ttk.Scrollbar(tab, orient=tk.HORIZONTAL, command=self.tree_proj.xview)
+        self.tree_proj.configure(xscrollcommand=proj_hsb.set)
+        proj_hsb.pack(fill=tk.X, padx=8, pady=(0,6))
         self.tree_proj.bind('<Double-1>', lambda e: self._edit_selected_project())
         
         # Store unfiltered data
@@ -311,6 +333,18 @@ class MetadataManager(tk.Toplevel):
         except Exception:
             return None
 
+    def _selected_ids(self, tree: ttk.Treeview, col_index: int = 0) -> list:
+        ids = []
+        for item in tree.selection():
+            vals = tree.item(item, 'values')
+            if not vals:
+                continue
+            try:
+                ids.append(int(vals[col_index]))
+            except Exception:
+                continue
+        return ids
+
     def _new_project(self):
         self._open_project_editor(None)
 
@@ -330,6 +364,25 @@ class MetadataManager(tk.Toplevel):
         db.delete_project(self.base_path, pid)
         self._reload_projects()
 
+    def _delete_selected_projects_bulk(self):
+        ids = self._selected_ids(self.tree_proj, 0)
+        if not ids:
+            return
+        if not messagebox.askyesno("Eliminar", f"¿Eliminar {len(ids)} proyecto(s)? (No borra archivos)", parent=self):
+            return
+        ok = 0; errs = []
+        for pid in ids:
+            try:
+                db.delete_project(self.base_path, pid)
+                ok += 1
+            except Exception as e:
+                errs.append(f"ID {pid}: {e}")
+        self._reload_projects()
+        msg = f"✓ Eliminados: {ok} proyecto(s)"
+        if errs:
+            msg += f"\n✗ Errores ({len(errs)}):\n" + "\n".join(errs[:10])
+        (Messagebox.show_info(title="Proyectos", message=msg, parent=self) if Messagebox else messagebox.showinfo("Proyectos", msg, parent=self))
+
     def _open_project_editor(self, project_id: Optional[int]):
         EditorProyecto(self, base_path=self.base_path, project_id=project_id, on_saved=lambda: self._reload_projects())
 
@@ -340,6 +393,10 @@ class MetadataManager(tk.Toplevel):
         ttk.Button(top, text="➕ Nuevo", command=lambda: self._open_archivo_editor(None)).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="✏️ Editar", command=lambda: self._open_archivo_editor(self._selected_id(self.tree_arch, 0))).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="🗑 Eliminar", command=self._delete_selected_archivo).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="🗑 Eliminar seleccionados", command=self._delete_selected_archivos_bulk).pack(side=tk.LEFT, padx=3)
+        ttk.Separator(top, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        ttk.Button(top, text="📥 Importar CSV", command=self._import_archivos_csv).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="📄 Plantilla CSV", command=self._export_archivos_template).pack(side=tk.LEFT, padx=3)
 
         # Search bar
         search_frame = ttk.Frame(tab); search_frame.pack(fill=tk.X, padx=8, pady=(0,6))
@@ -349,12 +406,20 @@ class MetadataManager(tk.Toplevel):
         ttk.Entry(search_frame, textvariable=self.var_search_arch, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         cols = ("id","nombre","siglas","direccion","contacto","email","telefono","url")
-        self.tree_arch = ttk.Treeview(tab, columns=cols, show="headings")
+        self.tree_arch = ttk.Treeview(tab, columns=cols, show="headings", selectmode='extended')
         headers = {"id":"ID","nombre":"Nombre","siglas":"Siglas","direccion":"Dirección","contacto":"Contacto","email":"Email","telefono":"Teléfono","url":"URL"}
         for c in cols:
             self.tree_arch.heading(c, text=headers[c])
-            self.tree_arch.column(c, width=140 if c not in ("direccion","url","nombre") else 220, anchor=tk.W)
-        self.tree_arch.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+            # Ajustar anchos: nombre/dirección/url más grandes; coordenadas tamaño medio
+            if c in ("nombre", "direccion", "url"):
+                self.tree_arch.column(c, width=220, anchor=tk.W)
+            else:
+                self.tree_arch.column(c, width=140, anchor=tk.W)
+        self.tree_arch.pack(fill=tk.BOTH, expand=True, padx=8, pady=(6,0))
+        # Horizontal scrollbar
+        arch_hsb = ttk.Scrollbar(tab, orient=tk.HORIZONTAL, command=self.tree_arch.xview)
+        self.tree_arch.configure(xscrollcommand=arch_hsb.set)
+        arch_hsb.pack(fill=tk.X, padx=8, pady=(0,6))
         self.tree_arch.bind('<Double-1>', lambda e: self._open_archivo_editor(self._selected_id(self.tree_arch, 0)))
         
         self._all_archivos = []
@@ -395,6 +460,282 @@ class MetadataManager(tk.Toplevel):
             return
         db.delete_archivo(self.base_path, aid)
         self._reload_archivos()
+    
+    def _delete_selected_archivos_bulk(self):
+        ids = self._selected_ids(self.tree_arch, 0)
+        if not ids:
+            return
+        if not messagebox.askyesno("Eliminar", f"¿Eliminar {len(ids)} archivo(s)?", parent=self):
+            return
+        ok = 0; errs = []
+        for aid in ids:
+            try:
+                db.delete_archivo(self.base_path, aid)
+                ok += 1
+            except Exception as e:
+                errs.append(f"ID {aid}: {e}")
+        self._reload_archivos()
+        msg = f"✓ Eliminados: {ok} archivo(s)"
+        if errs:
+            msg += f"\n✗ Errores ({len(errs)}):\n" + "\n".join(errs[:10])
+        (Messagebox.show_info(title="Archivos", message=msg, parent=self) if Messagebox else messagebox.showinfo("Archivos", msg, parent=self))
+    
+    def _export_archivos_template(self):
+        """Export CSV template for bulk archivo import"""
+        from tkinter import filedialog
+        import csv
+        
+        filepath = filedialog.asksaveasfilename(
+            parent=self,
+            title="Guardar plantilla CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="plantilla_archivos.csv"
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f, delimiter=';')
+                # Header with all fields
+                writer.writerow([
+                    'nombre', 'siglas', 'codigo_identificacion', 'tipo_institucion',
+                    'direccion', 'ciudad', 'provincia', 'pais',
+                    'contacto', 'email', 'telefono', 'url',
+                    'horario_atencion', 'condiciones_acceso', 'coordenadas_geograficas', 'notas'
+                ])
+                # Example row
+                writer.writerow([
+                    'Archivo Histórico Provincial de Madrid', 'AHPM', 'ES-28079-AHPM', 'Archivo Público',
+                    'Calle de Ramón de la Cruz, 28', 'Madrid', 'Madrid', 'España',
+                    'Juan Pérez García', 'info@ahpm.es', '+34 91 234 5678', 'https://www.ahpm.es',
+                    'Lunes a Viernes: 9:00-14:00', 'Acceso libre previa solicitud', '40.4168,-3.7038', 'Archivo fundado en 1850'
+                ])
+                # Empty row for user to fill
+                writer.writerow([''] * 16)
+            
+            if Messagebox:
+                Messagebox.show_info(title="Plantilla CSV", message=f"Plantilla guardada en:\n{filepath}", parent=self)
+            else:
+                messagebox.showinfo("Plantilla CSV", f"Plantilla guardada en:\n{filepath}", parent=self)
+        except Exception as e:
+            if Messagebox:
+                Messagebox.show_error(title="Error", message=f"Error al guardar plantilla:\n{e}", parent=self)
+            else:
+                messagebox.showerror("Error", f"Error al guardar plantilla:\n{e}", parent=self)
+    
+    def _import_archivos_csv(self):
+        """Import archivos from CSV file with configurable delimiter"""
+        from tkinter import filedialog
+        import csv
+        
+        filepath = filedialog.askopenfilename(
+            parent=self,
+            title="Seleccionar archivo CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if not filepath:
+            return
+        
+        # Dialog to choose delimiter
+        delimiter_dialog = tk.Toplevel(self)
+        delimiter_dialog.withdraw()
+        delimiter_dialog.title("Seleccionar Separador CSV")
+        delimiter_dialog.geometry("400x280")
+        delimiter_dialog.transient(self)
+        delimiter_dialog.resizable(False, False)
+        
+        try:
+            from utils.window_utils import center_to_parent
+            center_to_parent(delimiter_dialog, self)
+        except Exception:
+            pass
+        
+        ttk.Label(delimiter_dialog, text="Seleccione el carácter separador del CSV:", 
+                 font=("Open Sans", 11, "bold")).pack(pady=(20, 15))
+        
+        delimiter_var = tk.StringVar(value=';')
+        
+        delimiters = [
+            (';', 'Punto y coma (;) - Por defecto'),
+            (',', 'Coma (,) - CSV estándar'),
+            ('|', 'Barra vertical (|)'),
+            ('\t', 'Tabulación (TAB)')
+        ]
+        
+        for delim, label in delimiters:
+            ttk.Radiobutton(delimiter_dialog, text=label, variable=delimiter_var, 
+                           value=delim).pack(anchor=tk.W, padx=40, pady=5)
+        
+        selected_delimiter = [None]
+        
+        def on_ok():
+            selected_delimiter[0] = delimiter_var.get()
+            delimiter_dialog.destroy()
+        
+        def on_cancel():
+            delimiter_dialog.destroy()
+        
+        btn_frame = ttk.Frame(delimiter_dialog)
+        btn_frame.pack(pady=20)
+        ttk.Button(btn_frame, text="Aceptar", command=on_ok).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancelar", command=on_cancel).pack(side=tk.LEFT, padx=5)
+        
+        delimiter_dialog.deiconify()
+        delimiter_dialog.grab_set()
+        delimiter_dialog.wait_window()
+        
+        if selected_delimiter[0] is None:
+            return
+        
+        delimiter = selected_delimiter[0]
+        
+        # Create progress dialog
+        progress_dialog = tk.Toplevel(self)
+        progress_dialog.title("Importando archivos")
+        progress_dialog.geometry("450x180")
+        progress_dialog.resizable(False, False)
+        progress_dialog.transient(self)
+        progress_dialog.withdraw()
+        
+        try:
+            from utils.window_utils import center_to_parent
+            center_to_parent(progress_dialog, self)
+        except Exception:
+            pass
+        
+        ttk.Label(progress_dialog, text="⏳ Cargando archivos desde CSV...", 
+                 font=("Open Sans", 11, "bold")).pack(pady=(20, 10))
+        
+        progress_label = ttk.Label(progress_dialog, text="Preparando...", font=("Open Sans", 10))
+        progress_label.pack(pady=5)
+        
+        progress_bar = ttk.Progressbar(progress_dialog, mode='indeterminate', length=350)
+        progress_bar.pack(pady=15)
+        progress_bar.start(10)
+        
+        stats_label = ttk.Label(progress_dialog, text="", font=("Open Sans", 9))
+        stats_label.pack(pady=5)
+        
+        progress_dialog.deiconify()
+        progress_dialog.update()
+        
+        try:
+            imported = 0
+            skipped = 0
+            errors = []
+            
+            # First pass: count total rows
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f, delimiter=delimiter)
+                if reader.fieldnames:
+                    reader.fieldnames = [field.strip() if field else field for field in reader.fieldnames]
+                total_rows = sum(1 for row in reader if any(row.values()))
+            
+            # Second pass: import data
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f, delimiter=delimiter)
+                
+                # Strip whitespace from fieldnames
+                if reader.fieldnames:
+                    reader.fieldnames = [field.strip() if field else field for field in reader.fieldnames]
+                
+                for row_num, row in enumerate(reader, start=2):
+                    # Skip empty rows
+                    if not any(row.values()):
+                        continue
+                    
+                    # Update progress
+                    progress = imported + skipped + len(errors)
+                    progress_label.config(text=f"Procesando fila {progress + 1} de {total_rows}...")
+                    stats_label.config(text=f"✓ Importados: {imported} | ⊘ Omitidos: {skipped} | ✗ Errores: {len(errors)}")
+                    progress_dialog.update()
+                    
+                    # Validate required fields
+                    nombre = row.get('nombre', '').strip()
+                    if not nombre:
+                        errors.append(f"Fila {row_num}: nombre es obligatorio")
+                        continue
+                    
+                    try:
+                        # Create archivo with all fields, handling empty strings
+                        kwargs = {}
+                        for key, csv_key in [
+                            ('codigo_identificacion', 'codigo_identificacion'),
+                            ('tipo_institucion', 'tipo_institucion'),
+                            ('direccion', 'direccion'),
+                            ('contacto', 'contacto'),
+                            ('url', 'url'),
+                            ('ciudad', 'ciudad'),
+                            ('provincia', 'provincia'),
+                            ('pais', 'pais'),
+                            ('coordenadas_geograficas', 'coordenadas_geograficas'),
+                            ('horario_atencion', 'horario_atencion'),
+                            ('condiciones_acceso', 'condiciones_acceso'),
+                            ('notas', 'notas')
+                        ]:
+                            val = row.get(csv_key, '').strip()
+                            if val:
+                                kwargs[key] = val
+                        
+                        db.create_archivo(
+                            self.base_path,
+                            nombre=nombre,
+                            siglas=row.get('siglas', '').strip() or None,
+                            email=row.get('email', '').strip() or None,
+                            telefono=row.get('telefono', '').strip() or None,
+                            **kwargs
+                        )
+                        imported += 1
+                    except ValueError as e:
+                        # Duplicate detected
+                        if "Ya existe" in str(e):
+                            skipped += 1
+                        else:
+                            errors.append(f"Fila {row_num} ({nombre}): {str(e)}")
+                    except Exception as e:
+                        errors.append(f"Fila {row_num} ({nombre}): {str(e)}")
+            
+            # Close progress dialog
+            progress_dialog.destroy()
+            
+            # Reload list
+            self._reload_archivos()
+            
+            # Show summary
+            msg = f"✓ Importados: {imported} archivos"
+            if skipped > 0:
+                msg += f"\n⊘ Omitidos (duplicados): {skipped}"
+            if errors:
+                msg += f"\n\n✗ Errores ({len(errors)}):\n" + "\n".join(errors[:10])
+                if len(errors) > 10:
+                    msg += f"\n... y {len(errors)-10} errores más"
+            
+            if Messagebox:
+                if errors:
+                    Messagebox.show_warning(title="Importación CSV", message=msg, parent=self)
+                else:
+                    Messagebox.show_info(title="Importación CSV", message=msg, parent=self)
+            else:
+                if errors:
+                    messagebox.showwarning("Importación CSV", msg, parent=self)
+                else:
+                    messagebox.showinfo("Importación CSV", msg, parent=self)
+                    
+        except Exception as e:
+            # Close progress dialog if still open
+            try:
+                progress_dialog.destroy()
+            except:
+                pass
+            
+            if Messagebox:
+                Messagebox.show_error(title="Error", message=f"Error al leer CSV:\n{e}", parent=self)
+            else:
+                messagebox.showerror("Error", f"Error al leer CSV:\n{e}", parent=self)
 
     # ---- FONDOS ----
     def _build_tab_fondos(self):
@@ -403,6 +744,7 @@ class MetadataManager(tk.Toplevel):
         ttk.Button(top, text="➕ Nuevo", command=lambda: self._open_fondo_editor(None)).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="✏️ Editar", command=lambda: self._open_fondo_editor(self._selected_id(self.tree_fond, 0))).pack(side=tk.LEFT, padx=3)
         ttk.Button(top, text="🗑 Eliminar", command=self._delete_selected_fondo).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="🗑 Eliminar seleccionados", command=self._delete_selected_fondos_bulk).pack(side=tk.LEFT, padx=3)
 
         # Search bar
         search_frame = ttk.Frame(tab); search_frame.pack(fill=tk.X, padx=8, pady=(0,6))
@@ -412,12 +754,16 @@ class MetadataManager(tk.Toplevel):
         ttk.Entry(search_frame, textvariable=self.var_search_fond, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         cols = ("id","nombre","archivo","siglas","descripcion","periodo_inicio","periodo_fin")
-        self.tree_fond = ttk.Treeview(tab, columns=cols, show="headings")
+        self.tree_fond = ttk.Treeview(tab, columns=cols, show="headings", selectmode='extended')
         headers = {"id":"ID","nombre":"Nombre","archivo":"Archivo","siglas":"Siglas","descripcion":"Descripción","periodo_inicio":"Desde","periodo_fin":"Hasta"}
         for c in cols:
             self.tree_fond.heading(c, text=headers[c])
             self.tree_fond.column(c, width=140 if c not in ("descripcion","nombre") else 220, anchor=tk.W)
-        self.tree_fond.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+        self.tree_fond.pack(fill=tk.BOTH, expand=True, padx=8, pady=(6,0))
+        # Horizontal scrollbar
+        fond_hsb = ttk.Scrollbar(tab, orient=tk.HORIZONTAL, command=self.tree_fond.xview)
+        self.tree_fond.configure(xscrollcommand=fond_hsb.set)
+        fond_hsb.pack(fill=tk.X, padx=8, pady=(0,6))
         self.tree_fond.bind('<Double-1>', lambda e: self._open_fondo_editor(self._selected_id(self.tree_fond, 0)))
         
         self._all_fondos = []
@@ -458,6 +804,25 @@ class MetadataManager(tk.Toplevel):
             return
         db.delete_fondo(self.base_path, fid)
         self._reload_fondos()
+
+    def _delete_selected_fondos_bulk(self):
+        ids = self._selected_ids(self.tree_fond, 0)
+        if not ids:
+            return
+        if not messagebox.askyesno("Eliminar", f"¿Eliminar {len(ids)} fondo(s)?", parent=self):
+            return
+        ok = 0; errs = []
+        for fid in ids:
+            try:
+                db.delete_fondo(self.base_path, fid)
+                ok += 1
+            except Exception as e:
+                errs.append(f"ID {fid}: {e}")
+        self._reload_fondos()
+        msg = f"✓ Eliminados: {ok} fondo(s)"
+        if errs:
+            msg += f"\n✗ Errores ({len(errs)}):\n" + "\n".join(errs[:10])
+        (Messagebox.show_info(title="Fondos", message=msg, parent=self) if Messagebox else messagebox.showinfo("Fondos", msg, parent=self))
 
     # ---- ETIQUETAS ----
     def _build_tab_etiquetas(self):
@@ -826,7 +1191,7 @@ class EditorArchivo(tk.Toplevel):
     def __init__(self, parent: tk.Misc, base_path: Path, archivo_id: Optional[int], on_saved=None):
         super().__init__(parent)
         self.title("Archivo (Institución) · Editor")
-        self.geometry("750x930")
+        self.geometry("929x970")
         apply_titlebar_theme(self)
         
         # Ocultar ventana temporalmente para evitar parpadeo
@@ -838,6 +1203,8 @@ class EditorArchivo(tk.Toplevel):
         self.base_path = base_path
         self.archivo_id = archivo_id
         self.on_saved = on_saved
+        # Diagnóstico del mapa estático
+        self._last_static_map_error = ""
 
         # Frame principal sin scroll
         frm = ttk.Frame(self, padding=15)
@@ -859,6 +1226,7 @@ class EditorArchivo(tk.Toplevel):
         self.v_horario = tk.StringVar()
         self.v_acceso = tk.StringVar()
         self.v_notas = tk.StringVar()
+        self.v_coords = tk.StringVar()
         
         # Título
         ttk.Label(frm, text="Información del Archivo o Institución", 
@@ -899,8 +1267,13 @@ class EditorArchivo(tk.Toplevel):
                                                                           columnspan=3, sticky=tk.W, pady=(0,5))
         row += 1
         
-        create_field_with_help(frm, row, "Dirección", FIELD_HELP['archivo_direccion'], 
+        lbl_dir, ent_dir, help_dir = create_field_with_help(frm, row, "Dirección", FIELD_HELP['archivo_direccion'], 
                               self.v_dir, entry_width=50)
+        # Botón de sugerencia para probar geocodificación rápidamente
+        try:
+            ttk.Button(lbl_dir.master, text="Probar geocodificación", command=self._open_map_popup).pack(side=tk.LEFT, padx=(6,0))
+        except Exception:
+            pass
         row += 1
         
         create_field_with_help(frm, row, "Ciudad", FIELD_HELP['archivo_ciudad'], 
@@ -913,6 +1286,19 @@ class EditorArchivo(tk.Toplevel):
         
         create_field_with_help(frm, row, "País", FIELD_HELP['archivo_pais'], 
                               self.v_pais, entry_width=30)
+        row += 1
+
+        # Coordenadas + botón de mapa
+        row_frame = ttk.Frame(frm)
+        row_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, padx=5, pady=4)
+        ttk.Label(row_frame, text="Coordenadas", width=20, anchor=tk.W).pack(side=tk.LEFT, padx=(0, 5))
+        ent_coords = ttk.Entry(row_frame, textvariable=self.v_coords, width=30)
+        ent_coords.pack(side=tk.LEFT, padx=(0, 5))
+        btn_map = ttk.Button(row_frame, text="🗺 Abrir mapa", width=16, command=self._open_map_popup)
+        btn_map.pack(side=tk.LEFT)
+        help_icon = ttk.Label(row_frame, text="ℹ️", cursor="question_arrow")
+        help_icon.pack(side=tk.LEFT)
+        ToolTip(help_icon, FIELD_HELP['archivo_coordenadas'])
         row += 1
         
         ttk.Separator(frm, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=3, 
@@ -968,6 +1354,599 @@ class EditorArchivo(tk.Toplevel):
         self.deiconify()
         self.grab_set()
 
+    # ----- MAPA / GEOCODING -----
+    def _build_address_query(self) -> str:
+        parts = [
+            (self.v_dir.get() or '').strip(),
+            (self.v_ciudad.get() or '').strip(),
+            (self.v_provincia.get() or '').strip(),
+            (self.v_pais.get() or '').strip() or 'España'
+        ]
+        return ", ".join([p for p in parts if p])
+
+    def _geocode_osm(self, query: str) -> Optional[tuple[float, float]]:
+        if not query:
+            return None
+        try:
+            headers = {
+                'User-Agent': 'GeoDocsScanner/32.3 (+https://example.local)'
+            }
+            params = {
+                'q': query,
+                'format': 'json',
+                'addressdetails': 1,
+                'limit': 1
+            }
+            resp = requests.get('https://nominatim.openstreetmap.org/search', params=params, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            if not data:
+                return None
+            lat = float(data[0].get('lat'))
+            lon = float(data[0].get('lon'))
+            return (lat, lon)
+        except Exception:
+            return None
+
+    def _fetch_static_map(self, center_lat: float, center_lon: float, marker_lat: float = None, marker_lon: float = None, zoom: int = 14, size: tuple[int,int] = (640, 400), tmp_files: list[str] | None = None):
+        """Genera un mapa estático componiendo teselas de tile.openstreetmap.org.
+
+        Nota: Requiere PIL para ensamblar las teselas. Si PIL no está disponible
+        devolverá None y la UI sugerirá usar el mapa interactivo.
+        """
+        try:
+            # PIL es necesario para ensamblar el mosaico
+            if Image is None or ImageTk is None:
+                self._last_static_map_error = "PIL (Pillow) no está instalado"
+                return None
+
+            import math
+            tile_size = 256
+            width, height = size
+            n = 2 ** int(zoom)  # número de teselas por eje
+
+            # Conversión lat/lon -> píxeles "mundo" en Web Mercator
+            def latlon_to_world_px(lat: float, lon: float, z: int) -> tuple[float, float]:
+                siny = math.sin(lat * math.pi / 180.0)
+                siny = min(max(siny, -0.9999), 0.9999)
+                scale = tile_size * (2 ** z)
+                x = (lon + 180.0) / 360.0 * scale
+                y = (0.5 - math.log((1 + siny) / (1 - siny)) / (4 * math.pi)) * scale
+                return x, y
+
+            # Centro en coordenadas de píxel del mundo
+            cx, cy = latlon_to_world_px(center_lat, center_lon, int(zoom))
+            top_left_x = cx - (width / 2.0)
+            top_left_y = cy - (height / 2.0)
+
+            # Índices de tesela iniciales
+            x0_tile = math.floor(top_left_x / tile_size)
+            y0_tile = math.floor(top_left_y / tile_size)
+
+            # Desplazamiento dentro de la primera tesela
+            x_offset = int(top_left_x - x0_tile * tile_size)
+            y_offset = int(top_left_y - y0_tile * tile_size)
+
+            # Cantidad de teselas necesarias para cubrir el lienzo solicitado
+            tiles_x = math.ceil((x_offset + width) / tile_size)
+            tiles_y = math.ceil((y_offset + height) / tile_size)
+
+            # Lienzo donde pegar todas las teselas antes de recortar
+            mosaic_w = tiles_x * tile_size
+            mosaic_h = tiles_y * tile_size
+            mosaic = Image.new('RGB', (mosaic_w, mosaic_h), (240, 240, 240))
+
+            headers = {'User-Agent': 'GeoDocsScanner/32.3 (static-tiles)'}
+            fetched_tiles = 0
+            last_err = ""
+
+            for ix in range(tiles_x):
+                for iy in range(tiles_y):
+                    tx = (x0_tile + ix) % n  # wrap X
+                    ty = y0_tile + iy
+                    if ty < 0 or ty >= n:
+                        # Fuera de rango vertical: deja fondo gris
+                        continue
+                    url = f"https://tile.openstreetmap.org/{int(zoom)}/{tx}/{ty}.png"
+                    try:
+                        resp = requests.get(url, headers=headers, timeout=10)
+                        if resp.status_code != 200:
+                            last_err = f"HTTP {resp.status_code} al obtener {url}"
+                            continue
+                        tile_img = Image.open(io.BytesIO(resp.content)).convert('RGB')
+                    except Exception:
+                        last_err = f"Error {type(e).__name__}: {e} al obtener {url}"
+                        continue
+                    mosaic.paste(tile_img, (ix * tile_size, iy * tile_size))
+                    fetched_tiles += 1
+
+            if fetched_tiles == 0:
+                self._last_static_map_error = last_err or "No se pudieron descargar teselas"
+                return None
+
+            # Recortar al tamaño solicitado
+            crop_box = (x_offset, y_offset, x_offset + width, y_offset + height)
+            img = mosaic.crop(crop_box)
+
+            # Dibujar marcador si procede
+            if marker_lat is not None and marker_lon is not None and ImageDraw is not None:
+                mx, my = latlon_to_world_px(marker_lat, marker_lon, int(zoom))
+                px = int(mx - top_left_x)
+                py = int(my - top_left_y)
+                draw = ImageDraw.Draw(img)
+                r_outer = 7
+                r_inner = 5
+                # borde blanco para contraste
+                draw.ellipse([(px - r_outer, py - r_outer), (px + r_outer, py + r_outer)], fill=(255,255,255))
+                # punto rojo
+                draw.ellipse([(px - r_inner, py - r_inner), (px + r_inner, py + r_inner)], fill=(220,0,0))
+
+            return ImageTk.PhotoImage(img)
+        except Exception as e:
+            try:
+                self._last_static_map_error = f"Excepción {type(e).__name__}: {e}"
+            except Exception:
+                self._last_static_map_error = "Excepción desconocida al generar mapa"
+            return None
+
+    def _open_map_popup(self):
+        win = tk.Toplevel(self)
+        win.title("Ubicación en mapa")
+        apply_titlebar_theme(win)
+        win.geometry("939x625")
+        win.transient(self)
+        center_to_parent(win, self)
+
+        # UI elementos
+        top = ttk.Frame(win); top.pack(fill=tk.X, padx=10, pady=8)
+        ttk.Label(top, text="Dirección:" ).pack(side=tk.LEFT)
+        addr_var = tk.StringVar(value=self._build_address_query())
+        addr_entry = ttk.Entry(top, textvariable=addr_var, width=60)
+        addr_entry.pack(side=tk.LEFT, padx=6)
+        zoom_var = tk.IntVar(value=14)
+        ttk.Label(top, text="Zoom:").pack(side=tk.LEFT, padx=(10,2))
+        zoom_spin = ttk.Spinbox(top, from_=3, to=18, width=4, textvariable=zoom_var)
+        zoom_spin.pack(side=tk.LEFT)
+        btn_search = ttk.Button(top, text="Geocodificar", command=lambda: do_geocode(addr_var.get()))
+        btn_search.pack(side=tk.LEFT, padx=8)
+        if HAS_TKINTERWEB:
+            ttk.Button(top, text="Interactivo (Leaflet)", command=lambda: self._open_map_interactive(addr_var.get().strip())).pack(side=tk.LEFT, padx=8)
+
+        # Controles de paneo
+        pan = ttk.Frame(win); pan.pack(fill=tk.X, padx=10, pady=(0,8))
+        ttk.Label(pan, text="Mover:").pack(side=tk.LEFT)
+        PAN_STEP = 120  # píxeles en el mundo por paso
+        import math
+        def do_pan(dx_px: int, dy_px: int):
+            if map_state['center_lat'] is None or map_state['center_lon'] is None:
+                return
+            z = int(zoom_var.get())
+            cx, cy = _latlon_to_pixel(map_state['center_lat'], map_state['center_lon'], z)
+            cx += dx_px
+            cy += dy_px
+            lat, lon = _pixel_to_latlon(cx, cy, z)
+            mlat = result_coords.get('lat'); mlon = result_coords.get('lon')
+            if mlat is None or mlon is None:
+                render_map(lat, lon)
+            else:
+                render_map(lat, lon, mlat, mlon)
+        ttk.Button(pan, text="⬅", width=3, command=lambda: do_pan(-PAN_STEP, 0)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(pan, text="⬆", width=3, command=lambda: do_pan(0, -PAN_STEP)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(pan, text="➡", width=3, command=lambda: do_pan(PAN_STEP, 0)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(pan, text="⬇", width=3, command=lambda: do_pan(0, PAN_STEP)).pack(side=tk.LEFT, padx=3)
+        def center_on_marker():
+            mlat = result_coords.get('lat'); mlon = result_coords.get('lon')
+            if mlat is None or mlon is None:
+                return
+            render_map(mlat, mlon, mlat, mlon)
+        ttk.Button(pan, text="Centrar en marcador", command=center_on_marker).pack(side=tk.LEFT, padx=10)
+
+        map_frame = ttk.Frame(win); map_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        canvas = ttk.Label(map_frame)
+        canvas.pack(fill=tk.BOTH, expand=True)
+
+        status = ttk.Label(win, text="", anchor=tk.W)
+        status.pack(fill=tk.X, padx=10, pady=(0,10))
+
+        result_coords = {'lat': None, 'lon': None}
+        img_ref = {'img': None}
+        map_state = {'center_lat': None, 'center_lon': None, 'width': 640, 'height': 400, 'resize_job': None}
+        tmp_files: list[str] = []
+
+        def set_status(msg: str):
+            try:
+                status.config(text=msg)
+                status.update_idletasks()
+            except Exception:
+                pass
+
+        def render_map(center_lat: float, center_lon: float, marker_lat: float = None, marker_lon: float = None):
+            set_status("Cargando mapa…")
+            def worker():
+                try:
+                    photo = self._fetch_static_map(center_lat, center_lon, marker_lat, marker_lon, zoom=zoom_var.get(), size=(map_state['width'], map_state['height']), tmp_files=tmp_files)
+                    # Actualizar estado de vista
+                    map_state['center_lat'] = center_lat
+                    map_state['center_lon'] = center_lon
+                    if photo is None:
+                        msg = "No se pudo cargar el mapa (requiere internet y PIL)"
+                        if getattr(self, '_last_static_map_error', ''):
+                            msg += f"\nDetalle: {self._last_static_map_error}"
+                        set_status(msg)
+                        return
+                    img_ref['img'] = photo
+                    # Actualizar UI en hilo principal
+                    def on_ui():
+                        try:
+                            canvas.config(image=img_ref['img'])
+                            if marker_lat is not None and marker_lon is not None:
+                                set_status(f"Coordenadas: {marker_lat:.6f}, {marker_lon:.6f}")
+                            else:
+                                set_status(f"Centro: {center_lat:.6f}, {center_lon:.6f}")
+                        except Exception:
+                            pass
+                    self.after(0, on_ui)
+                finally:
+                    pass
+            threading.Thread(target=worker, daemon=True).start()
+
+        def do_geocode(addr: str):
+            q = (addr or '').strip()
+            if not q:
+                set_status("Introduzca una dirección para geocodificar")
+                return
+            set_status("Buscando coordenadas…")
+            def worker():
+                coords = self._geocode_osm(q)
+                if not coords:
+                    self.after(0, lambda: set_status("No se encontraron coordenadas"))
+                    return
+                lat, lon = coords
+                # Centrar y pintar marcador
+                self.after(0, lambda: [result_coords.update({'lat': lat, 'lon': lon}), render_map(lat, lon, lat, lon)])
+            threading.Thread(target=worker, daemon=True).start()
+
+        # ---- Mercator helpers ----
+        import math
+        def _latlon_to_pixel(lat: float, lon: float, zoom: int) -> tuple[float, float]:
+            siny = math.sin(lat * math.pi / 180.0)
+            siny = min(max(siny, -0.9999), 0.9999)
+            scale = 256.0 * (2 ** zoom)
+            x = (lon + 180.0) / 360.0 * scale
+            y = (0.5 - math.log((1 + siny) / (1 - siny)) / (4 * math.pi)) * scale
+            return (x, y)
+
+        def _pixel_to_latlon(px: float, py: float, zoom: int) -> tuple[float, float]:
+            scale = 256.0 * (2 ** zoom)
+            lon = px / scale * 360.0 - 180.0
+            n = math.pi - 2.0 * math.pi * (py / scale)
+            lat = (180.0 / math.pi) * math.atan(math.sinh(n))
+            return (lat, lon)
+
+        def on_click(event):
+            # Ignorar clicks fuera de la imagen útil
+            w, h = map_state['width'], map_state['height']
+            if event.x < 0 or event.y < 0 or event.x > w or event.y > h:
+                return
+            if map_state['center_lat'] is None or map_state['center_lon'] is None:
+                return
+            z = int(zoom_var.get())
+            cx, cy = _latlon_to_pixel(map_state['center_lat'], map_state['center_lon'], z)
+            top_left_x = cx - (w / 2.0)
+            top_left_y = cy - (h / 2.0)
+            world_x = top_left_x + float(event.x)
+            world_y = top_left_y + float(event.y)
+            lat, lon = _pixel_to_latlon(world_x, world_y, z)
+            # Guardar como selección y re-render con marcador y centro en el punto
+            result_coords['lat'] = lat
+            result_coords['lon'] = lon
+            render_map(lat, lon, lat, lon)
+
+        canvas.bind('<Button-1>', on_click)
+
+        # --- Controles adicionales: teclado, drag y rueda ---
+        # Panning con teclado
+        def _key_left(e=None):
+            do_pan(-PAN_STEP, 0)
+        def _key_right(e=None):
+            do_pan(PAN_STEP, 0)
+        def _key_up(e=None):
+            do_pan(0, -PAN_STEP)
+        def _key_down(e=None):
+            do_pan(0, PAN_STEP)
+        win.bind('<Left>', _key_left)
+        win.bind('<Right>', _key_right)
+        win.bind('<Up>', _key_up)
+        win.bind('<Down>', _key_down)
+        try:
+            win.focus_set()
+        except Exception:
+            pass
+
+        # Drag con ratón (pan al soltar)
+        map_state['drag_start'] = {'x': None, 'y': None}
+        def _on_drag_start(e):
+            map_state['drag_start']['x'] = e.x
+            map_state['drag_start']['y'] = e.y
+        def _on_drag_end(e):
+            sx = map_state['drag_start'].get('x')
+            sy = map_state['drag_start'].get('y')
+            if sx is None or sy is None:
+                return
+            dx = int(e.x - sx)
+            dy = int(e.y - sy)
+            # Para que el arrastre sea natural: mover el mapa opuesto al drag
+            if dx != 0 or dy != 0:
+                do_pan(-dx, -dy)
+            map_state['drag_start']['x'] = None
+            map_state['drag_start']['y'] = None
+        canvas.bind('<ButtonPress-1>', _on_drag_start)
+        canvas.bind('<ButtonRelease-1>', _on_drag_end)
+
+        # Zoom con rueda del ratón
+        def _zoom_in():
+            try:
+                z = int(zoom_var.get())
+                if z < 18:
+                    zoom_var.set(z + 1)
+            except Exception:
+                pass
+        def _zoom_out():
+            try:
+                z = int(zoom_var.get())
+                if z > 3:
+                    zoom_var.set(z - 1)
+            except Exception:
+                pass
+        def _on_mousewheel(e):
+            # Windows/Mac: delta positivo rueda arriba
+            if getattr(e, 'delta', 0) > 0:
+                _zoom_in()
+            else:
+                _zoom_out()
+        def _on_linux_wheel_up(e):
+            _zoom_in()
+        def _on_linux_wheel_down(e):
+            _zoom_out()
+        canvas.bind('<MouseWheel>', _on_mousewheel)
+        canvas.bind('<Button-4>', _on_linux_wheel_up)
+        canvas.bind('<Button-5>', _on_linux_wheel_down)
+
+        # Re-render cuando cambia el zoom
+        def _on_zoom_change(*args):
+            lat_c = map_state.get('center_lat')
+            lon_c = map_state.get('center_lon')
+            if lat_c is None or lon_c is None:
+                return
+            mlat = result_coords.get('lat')
+            mlon = result_coords.get('lon')
+            if mlat is None or mlon is None:
+                render_map(lat_c, lon_c)
+            else:
+                render_map(lat_c, lon_c, mlat, mlon)
+        try:
+            zoom_var.trace_add('write', lambda *a: _on_zoom_change())
+        except Exception:
+            pass
+
+        # Re-render al cambiar el tamaño disponible del contenedor
+        def _schedule_resize_render():
+            # Debounce para evitar renders excesivos durante el redimensionado
+            try:
+                if map_state['resize_job']:
+                    win.after_cancel(map_state['resize_job'])
+            except Exception:
+                pass
+            lat_c = map_state.get('center_lat')
+            lon_c = map_state.get('center_lon')
+            if lat_c is None or lon_c is None:
+                return
+            mlat = result_coords.get('lat')
+            mlon = result_coords.get('lon')
+            def _do():
+                try:
+                    if mlat is None or mlon is None:
+                        render_map(lat_c, lon_c)
+                    else:
+                        render_map(lat_c, lon_c, mlat, mlon)
+                finally:
+                    map_state['resize_job'] = None
+            map_state['resize_job'] = win.after(200, _do)
+
+        def _on_resize(event=None):
+            try:
+                # Usar el tamaño real del frame del mapa para decidir el lienzo
+                new_w = max(320, int(map_frame.winfo_width()))
+                new_h = max(260, int(map_frame.winfo_height()))
+            except Exception:
+                return
+            # Evitar re-render si el cambio es insignificante
+            if abs(new_w - map_state['width']) < 16 and abs(new_h - map_state['height']) < 16:
+                return
+            map_state['width'] = new_w
+            map_state['height'] = new_h
+            _schedule_resize_render()
+
+        # Vincular al evento Configure del contenedor del mapa
+        try:
+            map_frame.bind('<Configure>', _on_resize)
+        except Exception:
+            pass
+
+        # Botonera inferior
+        btns = ttk.Frame(win); btns.pack(fill=tk.X, padx=10, pady=(0,10))
+        def accept():
+            lat = result_coords.get('lat')
+            lon = result_coords.get('lon')
+            if lat is None or lon is None:
+                (Messagebox.show_warning(title="Mapa", message="No hay coordenadas seleccionadas", parent=win) if Messagebox else messagebox.showwarning("Mapa", "No hay coordenadas seleccionadas", parent=win))
+                return
+            self.v_coords.set(f"{lat:.6f},{lon:.6f}")
+            win.destroy()
+        ttk.Button(btns, text="Usar estas coordenadas", command=accept).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btns, text="Cerrar", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+
+        # Inicializar mapa: usar coords si existen; si no, geocodificar
+        try:
+            coords = (self.v_coords.get() or '').strip()
+            if coords and ',' in coords:
+                lat_s, lon_s = coords.split(',', 1)
+                lat = float(lat_s.strip()); lon = float(lon_s.strip())
+                result_coords['lat'] = lat; result_coords['lon'] = lon
+                render_map(lat, lon, lat, lon)
+            else:
+                # Intentar geocodificar por dirección
+                addr = addr_var.get().strip()
+                if addr:
+                    do_geocode(addr)
+                else:
+                    set_status("Sin dirección ni coordenadas. Introduzca una dirección.")
+        except Exception:
+            set_status("Error inicializando el mapa")
+
+        # Limpiar temporales al cerrar
+        def _cleanup_tmp():
+            try:
+                import os
+                for p in tmp_files:
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        win.protocol("WM_DELETE_WINDOW", lambda: (win.destroy(), _cleanup_tmp()))
+
+    def _open_map_interactive(self, prefill_address: str = ""):
+        # Requiere tkinterweb
+        if not HAS_TKINTERWEB:
+            (Messagebox.show_warning(title="Mapa", message="Para el mapa interactivo necesitas instalar 'tkinterweb'\nPuedes seguir usando el mapa estático.", parent=self) if Messagebox else messagebox.showwarning("Mapa", "Para el mapa interactivo necesitas instalar 'tkinterweb'\nPuedes seguir usando el mapa estático.", parent=self))
+            return
+        win = tk.Toplevel(self)
+        win.title("Mapa interactivo · Leaflet")
+        apply_titlebar_theme(win)
+        win.geometry("820x620")
+        win.transient(self)
+        center_to_parent(win, self)
+
+        # Determinar centro inicial
+        center_lat, center_lon = 40.4168, -3.7038  # Madrid por defecto
+        have_marker = False
+        try:
+            coords = (self.v_coords.get() or '').strip()
+            if coords and ',' in coords:
+                lat_s, lon_s = coords.split(',', 1)
+                center_lat = float(lat_s.strip()); center_lon = float(lon_s.strip())
+                have_marker = True
+        except Exception:
+            pass
+
+        # Si no hay coordenadas, intentar geocodificar la dirección (prefill o formulario)
+        if not have_marker:
+            addr = (prefill_address or '').strip() or self._build_address_query()
+            if addr:
+                try:
+                    res = self._geocode_osm(addr)
+                    if res:
+                        center_lat, center_lon = res
+                except Exception:
+                    pass
+
+                # HTML Leaflet básico
+                html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=\"utf-8\"/>
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"/>
+    <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" integrity=\"sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=\" crossorigin=\"\"/>
+    <style>html,body,#map{{height:100%;margin:0;padding:0;}} #coords{{position:absolute;top:10px;right:10px;background:#fff;padding:6px 8px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.2);font-family:sans-serif;}} .leaflet-container{{cursor:crosshair;}}</style>
+</head>
+<body>
+    <div id=\"map\"></div>
+    <div id=\"coords\">Click en el mapa para seleccionar</div>
+    <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\" integrity=\"sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=\" crossorigin=\"\"></script>
+    <script>
+        var map = L.map('map').setView([{center_lat}, {center_lon}], 14);
+        L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{ maxZoom: 19, attribution: '&copy; OpenStreetMap' }}).addTo(map);
+        var marker = null;
+        window._selLat = null; window._selLon = null;
+        function setMarker(lat, lon){{
+            window._selLat = lat; window._selLon = lon;
+            if (marker){{ map.removeLayer(marker); }}
+            marker = L.marker([lat, lon], {{draggable:true}}).addTo(map);
+            marker.on('dragend', function(e){{
+                var p = e.target.getLatLng();
+                window._selLat = p.lat; window._selLon = p.lng;
+                document.title = p.lat.toFixed(6) + ',' + p.lng.toFixed(6);
+                document.getElementById('coords').innerText = 'Seleccionado: ' + document.title;
+            }});
+            document.title = lat.toFixed(6) + ',' + lon.toFixed(6);
+            document.getElementById('coords').innerText = 'Seleccionado: ' + document.title;
+        }}
+        map.on('click', function(e){{ setMarker(e.latlng.lat, e.latlng.lng); }});
+        {("setMarker("+str(center_lat)+","+str(center_lon)+");" if have_marker else "")}
+    </script>
+</body>
+</html>
+"""
+
+        # Frame HTML
+        frame = _HtmlFrame(win, horizontal_scrollbar=False, vertical_scrollbar=True)
+        frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8,4))
+        try:
+            frame.load_html(html)
+        except Exception:
+            # Fallback: abrir como texto plano si algo falla
+            txt = tk.Text(win, wrap='word'); txt.insert('1.0', html); txt.configure(state='disabled')
+            txt.pack(fill=tk.BOTH, expand=True)
+
+        # Zona acciones
+        bottom = ttk.Frame(win); bottom.pack(fill=tk.X, padx=8, pady=(0,8))
+        inter_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=inter_var).pack(side=tk.LEFT)
+
+        def _js_eval(expr: str) -> Optional[str]:
+            # Probar distintos métodos disponibles en tkinterweb
+            cands = []
+            for obj in (frame, getattr(frame, 'html', None)):
+                if obj is None: continue
+                cands += [getattr(obj, n, None) for n in ('eval_js','evaluate_js','execute_js','run_javascript','eval')]
+            for fn in cands:
+                if not callable(fn):
+                    continue
+                try:
+                    return fn(expr)
+                except Exception:
+                    continue
+            return None
+
+        def read_from_map():
+            res = _js_eval("(window._selLat && window._selLon) ? (window._selLat.toFixed(6)+','+window._selLon.toFixed(6)) : ''")
+            if not res:
+                # Intentar por título del documento
+                try:
+                    title_get = getattr(frame, 'get_title', None)
+                    if callable(title_get):
+                        res = title_get()
+                except Exception:
+                    res = ''
+            inter_var.set(res or "(sin selección)")
+
+        def accept_from_map():
+            read_from_map()
+            v = inter_var.get().strip()
+            if not v or ',' not in v:
+                (Messagebox.show_warning(title="Mapa", message="No hay coordenadas seleccionadas", parent=win) if Messagebox else messagebox.showwarning("Mapa", "No hay coordenadas seleccionadas", parent=win))
+                return
+            self.v_coords.set(v)
+            win.destroy()
+
+        ttk.Button(bottom, text="Leer coordenadas", command=read_from_map).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(bottom, text="Usar estas coordenadas", command=accept_from_map).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(bottom, text="Cerrar", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+
     def _load(self):
         rows = db.list_archivos(self.base_path)
         row = next((r for r in rows if r.get('id') == self.archivo_id), None)
@@ -977,17 +1956,18 @@ class EditorArchivo(tk.Toplevel):
         self.v_siglas.set(row.get('siglas') or '')
         self.v_codigo.set(row.get('codigo_identificacion') or '')
         self.v_tipo.set(row.get('tipo_institucion') or 'archivo')
-        self.v_dir.set(row.get('direccion') or row.get('direccion_completa') or '')
+        self.v_dir.set(row.get('direccion') or '')
         self.v_ciudad.set(row.get('ciudad') or '')
         self.v_provincia.set(row.get('provincia') or '')
         self.v_pais.set(row.get('pais') or 'España')
-        self.v_cont.set(row.get('contacto') or row.get('contacto_responsable') or '')
+        self.v_cont.set(row.get('contacto') or '')
         self.v_email.set(row.get('email') or '')
         self.v_tel.set(row.get('telefono') or '')
         self.v_url.set(row.get('url') or '')
         self.v_horario.set(row.get('horario_atencion') or '')
         self.v_acceso.set(row.get('condiciones_acceso') or '')
         self.v_notas.set(row.get('notas') or '')
+        self.v_coords.set(row.get('coordenadas_geograficas') or '')
 
     def _save(self):
         nombre = self.v_nombre.get().strip()
@@ -1011,16 +1991,24 @@ class EditorArchivo(tk.Toplevel):
             'horario_atencion': self.v_horario.get().strip() or None,
             'condiciones_acceso': self.v_acceso.get().strip() or None,
             'notas': self.v_notas.get().strip() or None,
+            'coordenadas_geograficas': (self.v_coords.get().strip() or None),
         }
         
-        if self.archivo_id:
-            db.update_archivo(self.base_path, self.archivo_id, **data)
-        else:
-            db.create_archivo(self.base_path, **data)
-        
-        if self.on_saved:
-            self.on_saved()
-        self.destroy()
+        try:
+            if self.archivo_id:
+                db.update_archivo(self.base_path, self.archivo_id, **data)
+            else:
+                db.create_archivo(self.base_path, **data)
+            
+            if self.on_saved:
+                self.on_saved()
+            self.destroy()
+        except ValueError as e:
+            # Duplicate name
+            if Messagebox:
+                Messagebox.show_error(title="Error", message=str(e), parent=self)
+            else:
+                messagebox.showerror("Error", str(e), parent=self)
 
 
 class EditorFondo(tk.Toplevel):
@@ -1334,17 +2322,24 @@ class QuickEditorArchivo(tk.Toplevel):
             messagebox.showwarning("Archivo", "Nombre oficial es obligatorio", parent=self)
             return
         
-        new_id = db.create_archivo(
-            self.base_path, 
-            nombre=nombre,
-            siglas=self.v_siglas.get().strip() or None,
-            ciudad=self.v_ciudad.get().strip() or None
-        )
-        
-        if self.on_saved:
-            self.on_saved(new_id)
-        
-        self.destroy()
+        try:
+            new_id = db.create_archivo(
+                self.base_path, 
+                nombre=nombre,
+                siglas=self.v_siglas.get().strip() or None,
+                ciudad=self.v_ciudad.get().strip() or None
+            )
+            
+            if self.on_saved:
+                self.on_saved(new_id)
+            
+            self.destroy()
+        except ValueError as e:
+            # Duplicate name
+            if Messagebox:
+                Messagebox.show_error(title="Error", message=str(e), parent=self)
+            else:
+                messagebox.showerror("Error", str(e), parent=self)
 
 
 class QuickEditorFondo(tk.Toplevel):

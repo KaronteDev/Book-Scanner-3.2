@@ -54,4 +54,5 @@ tmp_check_app.py - Script temporal de verificación
 
 
 
-Hay que generar una ventana de configuración global del programa que permita seleccionar la carpeta raíz de trabajo
+- Hecho. Hay que generar una ventana de configuración global del programa que permita seleccionar la carpeta raíz de trabajo
+- Crear importación csv de archivos y fondos

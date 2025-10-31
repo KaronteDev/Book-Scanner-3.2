@@ -4,6 +4,12 @@
 scanner_module.py — Core camera scanning functionality
 Extracted from gui_book_scan_tk2.py and refactored for modular integration
 """
+import os
+# Suppress OpenCV logging before import - set to SILENT level
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+
 import tkinter as tk
 from tkinter import messagebox, filedialog, colorchooser
 try:
@@ -39,6 +45,11 @@ except Exception:
 try:
     import cv2
     import numpy as np
+    # Additional runtime suppression (though env vars should handle most)
+    try:
+        cv2.setLogLevel(0)  # 0 = SILENT
+    except Exception:
+        pass
 except ImportError:
     cv2 = None
     np = None
@@ -382,6 +393,13 @@ class CameraScanner:
             w.destroy()
         # Compute target width for thumbnails
         t_width = self._thumb_target_width()
+        
+        # Helper para agregar bindings de scroll a widgets
+        def bind_mousewheel(widget):
+            widget.bind('<MouseWheel>', self._on_gallery_mousewheel)
+            widget.bind('<Button-4>', lambda e: self._gallery_scroll(-1))
+            widget.bind('<Button-5>', lambda e: self._gallery_scroll(1))
+        
         for idx, fn in enumerate(self._gallery_order):
             # Highlight selection background in green
             bg = "#1e1e1e" if idx != self._selected_index else "#2d5f2d"
@@ -390,9 +408,11 @@ class CameraScanner:
             item.pack(fill=tk.X, pady=6, padx=8)
             item.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
             item.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+            bind_mousewheel(item)
 
             inner = tk.Frame(item, bg=bg)
             inner.pack(fill=tk.X, expand=True)
+            bind_mousewheel(inner)
 
             thumb = self._thumb_for(fn, t_width)
             if thumb:
@@ -400,6 +420,7 @@ class CameraScanner:
                 if pad_px > 0:
                     pad_frame = tk.Frame(inner, bg=self.thumb_pad_color)
                     pad_frame.pack(padx=6, pady=(6, 2), anchor='center')
+                    bind_mousewheel(pad_frame)
                     lbl_img = tk.Label(pad_frame, image=thumb, bg=self.thumb_pad_color)
                     lbl_img.image = thumb
                     lbl_img.pack(padx=pad_px, pady=pad_px)
@@ -407,17 +428,20 @@ class CameraScanner:
                     for wdg in (pad_frame, lbl_img):
                         wdg.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
                         wdg.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+                        bind_mousewheel(wdg)
                 else:
                     lbl_img = tk.Label(inner, image=thumb, bg=bg)
                     lbl_img.image = thumb
                     lbl_img.pack(padx=6, pady=(6, 2), anchor='center')
                     lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
                     lbl_img.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+                    bind_mousewheel(lbl_img)
 
             lbl_text = tk.Label(item, text=fn, bg=bg, fg='#ddd', wraplength=t_width, justify='center')
             lbl_text.pack(fill=tk.X, padx=6, pady=(0, 6))
             lbl_text.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
             lbl_text.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+            bind_mousewheel(lbl_text)
 
     def _thumb_padding_px(self, t_width: int) -> int:
         """Compute pixel padding for thumbnail based on percentage control and target width."""
@@ -1130,14 +1154,30 @@ class CameraScanner:
         
         return display_img
     
+    def _safe_canvas_delete(self, tag):
+        """Safely delete canvas items, ignoring if canvas was destroyed"""
+        try:
+            if hasattr(self, 'canvas') and self.canvas.winfo_exists():
+                self.canvas.delete(tag)
+        except Exception:
+            pass
+    
     def _update_detection_status(self, contour):
         """Update detection status indicator"""
-        if not self.detect_page.get():
-            self.detection_status_label.config(text="", foreground="gray")
-        elif contour is not None:
-            self.detection_status_label.config(text="✓ Página detectada", foreground="green")
-        else:
-            self.detection_status_label.config(text="⚠ Sin detección", foreground="orange")
+        try:
+            # Verificar que el widget todavía existe
+            if not hasattr(self, 'detection_status_label') or not self.detection_status_label.winfo_exists():
+                return
+            
+            if not self.detect_page.get():
+                self.detection_status_label.config(text="", foreground="gray")
+            elif contour is not None:
+                self.detection_status_label.config(text="✓ Página detectada", foreground="green")
+            else:
+                self.detection_status_label.config(text="⚠ Sin detección", foreground="orange")
+        except Exception:
+            # Widget ya destruido, ignorar
+            pass
     
     def _apply_adjustments(self, img_array):
         """Apply brightness/contrast adjustments and detect page if enabled"""
@@ -1539,7 +1579,7 @@ class CameraScanner:
                 font=("Open Sans", 14, "bold"),
                 tags="toast"
             )
-            self.parent.after(2000, lambda: self.canvas.delete("toast"))
+            self.parent.after(2000, lambda: self._safe_canvas_delete("toast"))
         except Exception as e:
             if Messagebox:
                 Messagebox.show_error(title="Error", message=f"No se pudo guardar: {e}", parent=self.root)
@@ -1604,7 +1644,7 @@ class CameraScanner:
                 font=("Open Sans", 14, "bold"),
                 tags="toast"
             )
-            self.parent.after(2000, lambda: self.canvas.delete("toast"))
+            self.parent.after(2000, lambda: self._safe_canvas_delete("toast"))
         except Exception as e:
             if Messagebox:
                 Messagebox.show_error(title="Error", message=f"No se pudo guardar: {e}", parent=self.root)

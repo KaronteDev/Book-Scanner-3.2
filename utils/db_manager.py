@@ -224,32 +224,125 @@ def init_global_db(base_path: Path) -> None:
         # Migración campos legacy a nuevos campos normalizados
         _ensure_column(cur, 'archivos', 'codigo_identificacion', 'codigo_identificacion TEXT')
         _ensure_column(cur, 'archivos', 'nombre_oficial', 'nombre_oficial TEXT')
+        _ensure_column(cur, 'archivos', 'siglas', 'siglas TEXT')
         _ensure_column(cur, 'archivos', 'tipo_institucion', 'tipo_institucion TEXT DEFAULT "archivo"')
+        _ensure_column(cur, 'archivos', 'direccion_completa', 'direccion_completa TEXT')
         _ensure_column(cur, 'archivos', 'ciudad', 'ciudad TEXT')
         _ensure_column(cur, 'archivos', 'provincia', 'provincia TEXT')
         _ensure_column(cur, 'archivos', 'pais', 'pais TEXT DEFAULT "España"')
+        _ensure_column(cur, 'archivos', 'contacto_responsable', 'contacto_responsable TEXT')
+        _ensure_column(cur, 'archivos', 'email', 'email TEXT')
+        _ensure_column(cur, 'archivos', 'telefono', 'telefono TEXT')
+        _ensure_column(cur, 'archivos', 'url', 'url TEXT')
+        _ensure_column(cur, 'archivos', 'coordenadas_geograficas', 'coordenadas_geograficas TEXT')
+        _ensure_column(cur, 'archivos', 'horario_atencion', 'horario_atencion TEXT')
+        _ensure_column(cur, 'archivos', 'condiciones_acceso', 'condiciones_acceso TEXT')
+        _ensure_column(cur, 'archivos', 'notas', 'notas TEXT')
         _ensure_column(cur, 'archivos', 'updated_at', 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         
         _ensure_column(cur, 'fondos', 'codigo_referencia', 'codigo_referencia TEXT')
         _ensure_column(cur, 'fondos', 'titulo', 'titulo TEXT')
+        _ensure_column(cur, 'fondos', 'descripcion', 'descripcion TEXT')
+        _ensure_column(cur, 'fondos', 'archivo_id', 'archivo_id INTEGER')
         _ensure_column(cur, 'fondos', 'nivel_descripcion', 'nivel_descripcion TEXT DEFAULT "fonds"')
+        _ensure_column(cur, 'fondos', 'volumen_soporte', 'volumen_soporte TEXT')
+        _ensure_column(cur, 'fondos', 'fecha_inicial', 'fecha_inicial TEXT')
+        _ensure_column(cur, 'fondos', 'fecha_final', 'fecha_final TEXT')
         _ensure_column(cur, 'fondos', 'fecha_inicial_normalizada', 'fecha_inicial_normalizada TEXT')
         _ensure_column(cur, 'fondos', 'fecha_final_normalizada', 'fecha_final_normalizada TEXT')
+        _ensure_column(cur, 'fondos', 'historia_institucional', 'historia_institucional TEXT')
+        _ensure_column(cur, 'fondos', 'historia_archivistica', 'historia_archivistica TEXT')
+        _ensure_column(cur, 'fondos', 'forma_ingreso', 'forma_ingreso TEXT')
+        _ensure_column(cur, 'fondos', 'alcance_contenido', 'alcance_contenido TEXT')
+        _ensure_column(cur, 'fondos', 'valoracion_seleccion', 'valoracion_seleccion TEXT')
+        _ensure_column(cur, 'fondos', 'nuevos_ingresos', 'nuevos_ingresos TEXT')
+        _ensure_column(cur, 'fondos', 'organizacion', 'organizacion TEXT')
+        _ensure_column(cur, 'fondos', 'condiciones_acceso', 'condiciones_acceso TEXT')
+        _ensure_column(cur, 'fondos', 'condiciones_reproduccion', 'condiciones_reproduccion TEXT')
         _ensure_column(cur, 'fondos', 'lengua_documentos', 'lengua_documentos TEXT DEFAULT "spa"')
+        _ensure_column(cur, 'fondos', 'caracteristicas_fisicas', 'caracteristicas_fisicas TEXT')
+        _ensure_column(cur, 'fondos', 'instrumentos_descripcion', 'instrumentos_descripcion TEXT')
+        _ensure_column(cur, 'fondos', 'existencia_originales', 'existencia_originales TEXT')
+        _ensure_column(cur, 'fondos', 'existencia_copias', 'existencia_copias TEXT')
+        _ensure_column(cur, 'fondos', 'unidades_relacionadas', 'unidades_relacionadas TEXT')
+        _ensure_column(cur, 'fondos', 'nota_publicaciones', 'nota_publicaciones TEXT')
+        _ensure_column(cur, 'fondos', 'notas_generales', 'notas_generales TEXT')
+        _ensure_column(cur, 'fondos', 'nota_archivero', 'nota_archivero TEXT')
+        _ensure_column(cur, 'fondos', 'reglas_normas', 'reglas_normas TEXT DEFAULT "ISAD(G)"')
+        _ensure_column(cur, 'fondos', 'fecha_descripcion', 'fecha_descripcion TEXT')
+        _ensure_column(cur, 'fondos', 'created_at', 'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         _ensure_column(cur, 'fondos', 'updated_at', 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         
         _ensure_column(cur, 'etiquetas', 'termino', 'termino TEXT')
+        _ensure_column(cur, 'etiquetas', 'termino_normalizado', 'termino_normalizado TEXT')
         _ensure_column(cur, 'etiquetas', 'tipo_termino', 'tipo_termino TEXT DEFAULT "topic"')
         _ensure_column(cur, 'etiquetas', 'vocabulario_fuente', 'vocabulario_fuente TEXT')
+        _ensure_column(cur, 'etiquetas', 'uri', 'uri TEXT')
+        _ensure_column(cur, 'etiquetas', 'descripcion', 'descripcion TEXT')
+        _ensure_column(cur, 'etiquetas', 'terminos_relacionados', 'terminos_relacionados TEXT')
+        _ensure_column(cur, 'etiquetas', 'termino_preferido_id', 'termino_preferido_id INTEGER')
+        _ensure_column(cur, 'etiquetas', 'created_at', 'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         _ensure_column(cur, 'etiquetas', 'updated_at', 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         
         _ensure_column(cur, 'proyectos', 'codigo_proyecto', 'codigo_proyecto TEXT')
+        _ensure_column(cur, 'proyectos', 'titulo', 'titulo TEXT')
+        _ensure_column(cur, 'proyectos', 'titulo_alternativo', 'titulo_alternativo TEXT')
+        _ensure_column(cur, 'proyectos', 'codigo_referencia', 'codigo_referencia TEXT')
+        _ensure_column(cur, 'proyectos', 'signatura', 'signatura TEXT')
         _ensure_column(cur, 'proyectos', 'nivel_descripcion', 'nivel_descripcion TEXT DEFAULT "item"')
+        _ensure_column(cur, 'proyectos', 'tipo_documento', 'tipo_documento TEXT')
+        _ensure_column(cur, 'proyectos', 'tipo_material', 'tipo_material TEXT')
+        _ensure_column(cur, 'proyectos', 'autor', 'autor TEXT')
+        _ensure_column(cur, 'proyectos', 'creador', 'creador TEXT')
+        _ensure_column(cur, 'proyectos', 'productor', 'productor TEXT')
+        _ensure_column(cur, 'proyectos', 'tema', 'tema TEXT')
+        _ensure_column(cur, 'proyectos', 'descripcion', 'descripcion TEXT')
+        _ensure_column(cur, 'proyectos', 'alcance_contenido', 'alcance_contenido TEXT')
+        _ensure_column(cur, 'proyectos', 'resumen', 'resumen TEXT')
+        _ensure_column(cur, 'proyectos', 'etiquetas', 'etiquetas TEXT')
+        _ensure_column(cur, 'proyectos', 'fecha_creacion_doc', 'fecha_creacion_doc TEXT')
+        _ensure_column(cur, 'proyectos', 'fecha_inicial', 'fecha_inicial TEXT')
+        _ensure_column(cur, 'proyectos', 'fecha_final', 'fecha_final TEXT')
+        _ensure_column(cur, 'proyectos', 'fecha_normalizadar', 'fecha_normalizadar TEXT')
+        _ensure_column(cur, 'proyectos', 'lugar_creacion', 'lugar_creacion TEXT')
         _ensure_column(cur, 'proyectos', 'lengua', 'lengua TEXT DEFAULT "spa"')
+        _ensure_column(cur, 'proyectos', 'cobertura_temporal', 'cobertura_temporal TEXT')
+        _ensure_column(cur, 'proyectos', 'cobertura_geografica', 'cobertura_geografica TEXT')
+        _ensure_column(cur, 'proyectos', 'extension', 'extension TEXT')
+        _ensure_column(cur, 'proyectos', 'formato', 'formato TEXT')
+        _ensure_column(cur, 'proyectos', 'soporte', 'soporte TEXT')
+        _ensure_column(cur, 'proyectos', 'dimensiones', 'dimensiones TEXT')
+        _ensure_column(cur, 'proyectos', 'estado_conservacion', 'estado_conservacion TEXT')
+        _ensure_column(cur, 'proyectos', 'tratamiento_tecnico', 'tratamiento_tecnico TEXT')
+        _ensure_column(cur, 'proyectos', 'derechos', 'derechos TEXT')
         _ensure_column(cur, 'proyectos', 'licencia', 'licencia TEXT DEFAULT "In Copyright"')
-        _ensure_column(cur, 'proyectos', 'esquema_metadatos', 'esquema_metadatos TEXT DEFAULT "Dublin Core + ISAD(G)"')
+        _ensure_column(cur, 'proyectos', 'titular_derechos', 'titular_derechos TEXT')
+        _ensure_column(cur, 'proyectos', 'condiciones_acceso', 'condiciones_acceso TEXT')
+        _ensure_column(cur, 'proyectos', 'condiciones_uso', 'condiciones_uso TEXT')
+        _ensure_column(cur, 'proyectos', 'fondo_id', 'fondo_id INTEGER')
+        _ensure_column(cur, 'proyectos', 'proyecto_padre_id', 'proyecto_padre_id INTEGER')
+        _ensure_column(cur, 'proyectos', 'carpeta_raiz', 'carpeta_raiz TEXT')
+        _ensure_column(cur, 'proyectos', 'db_path', 'db_path TEXT')
+        _ensure_column(cur, 'proyectos', 'notas', 'notas TEXT')
+        _ensure_column(cur, 'proyectos', 'observaciones_tecnicas', 'observaciones_tecnicas TEXT')
+        _ensure_column(cur, 'proyectos', 'responsable_digitalizacion', 'responsable_digitalizacion TEXT')
+        _ensure_column(cur, 'proyectos', 'fecha_digitalizacion', 'fecha_digitalizacion TEXT')
+        _ensure_column(cur, 'proyectos', 'equipamiento_digitalizacion', 'equipamiento_digitalizacion TEXT')
+        _ensure_column(cur, 'proyectos', 'calidad_digitalizacion', 'calidad_digitalizacion TEXT')
+        _ensure_column(cur, 'proyectos', 'formato_digital', 'formato_digital TEXT')
         _ensure_column(cur, 'proyectos', 'resolucion_dpi', 'resolucion_dpi INTEGER')
+        _ensure_column(cur, 'proyectos', 'espacio_color', 'espacio_color TEXT')
         _ensure_column(cur, 'proyectos', 'formato_archivo', 'formato_archivo TEXT')
+        _ensure_column(cur, 'proyectos', 'tamano_archivo_mb', 'tamano_archivo_mb REAL')
+        _ensure_column(cur, 'proyectos', 'checksum', 'checksum TEXT')
+        _ensure_column(cur, 'proyectos', 'software_utilizado', 'software_utilizado TEXT')
+        _ensure_column(cur, 'proyectos', 'metadatos_incrustados', 'metadatos_incrustados BOOLEAN DEFAULT 0')
+        _ensure_column(cur, 'proyectos', 'identificador_persistente', 'identificador_persistente TEXT')
+        _ensure_column(cur, 'proyectos', 'uri_canonical', 'uri_canonical TEXT')
+        _ensure_column(cur, 'proyectos', 'fuente_metadatos', 'fuente_metadatos TEXT')
+        _ensure_column(cur, 'proyectos', 'esquema_metadatos', 'esquema_metadatos TEXT DEFAULT "Dublin Core + ISAD(G)"')
+        _ensure_column(cur, 'proyectos', 'created_at', 'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        _ensure_column(cur, 'proyectos', 'updated_at', 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         
         # Copiar datos de campos legacy si existen
         if _has_column(cur, 'archivos', 'nombre') and not _has_column(cur, 'archivos', 'nombre_oficial'):
@@ -923,61 +1016,145 @@ def list_archivos(base_path: Path) -> List[Dict[str, Any]]:
             d['nombre'] = d['nombre_oficial']
         elif 'nombre' not in d and 'nombre_oficial' in d:
             d['nombre'] = d['nombre_oficial']
+        # Normalizar campos para UI
+        if 'direccion_completa' in d and d.get('direccion_completa') is not None:
+            d['direccion'] = d['direccion_completa']
+        elif 'direccion' not in d and 'direccion_completa' in d:
+            d['direccion'] = d.get('direccion_completa')
+        if 'contacto_responsable' in d and d.get('contacto_responsable') is not None:
+            d['contacto'] = d['contacto_responsable']
+        elif 'contacto' not in d and 'contacto_responsable' in d:
+            d['contacto'] = d.get('contacto_responsable')
         result.append(d)
     return result
 
 
 def create_archivo(base_path: Path, nombre: str, siglas: str = None, direccion: str = None, contacto: str = None, email: str = None, telefono: str = None, url: str = None, **kwargs) -> int:
+    """Crea un registro en 'archivos' compatible con esquemas legacy.
+
+    - Controla duplicados por nombre (case-insensitive).
+    - Rellena tanto 'nombre_oficial' como 'nombre' si esta última existe (DB antigua).
+    - Cierra siempre la conexión aunque haya errores para evitar 'database is locked'.
+    """
     db_path = base_path / "data" / GLOBAL_DB
-    conn = sqlite3.connect(db_path); cur = conn.cursor()
-    
-    # Generar código de identificación único
-    codigo = kwargs.get('codigo_identificacion') or f"ARC{int(time.time())}"
-    siglas_final = siglas or _infer_siglas(nombre)
-    
-    cur.execute(
-        """INSERT INTO archivos(
-            codigo_identificacion, nombre_oficial, siglas, tipo_institucion,
-            direccion_completa, ciudad, provincia, pais,
-            contacto_responsable, email, telefono, url, notas
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (
-            codigo, nombre, siglas_final, kwargs.get('tipo_institucion', 'archivo'),
-            direccion, kwargs.get('ciudad'), kwargs.get('provincia'), kwargs.get('pais', 'España'),
-            contacto, email, telefono, url, kwargs.get('notas')
-        )
-    )
-    rid = cur.lastrowid; conn.commit(); conn.close(); return rid
+    conn = sqlite3.connect(db_path, timeout=15)
+    try:
+        cur = conn.cursor()
+
+        # Detectar columnas (para compatibilidad con DB antiguas)
+        has_nombre_oficial = True
+        has_nombre_legacy = False
+        try:
+            has_nombre_oficial = _has_column(cur, 'archivos', 'nombre_oficial')
+            has_nombre_legacy = _has_column(cur, 'archivos', 'nombre')
+        except Exception:
+            # Si algo falla, asumimos al menos esquema nuevo
+            has_nombre_oficial = True
+            has_nombre_legacy = False
+
+        # Verificar duplicados por nombre (case-insensitive)
+        check_duplicates = kwargs.get('check_duplicates', True)
+        if check_duplicates:
+            if has_nombre_oficial:
+                cur.execute("SELECT id FROM archivos WHERE LOWER(nombre_oficial) = LOWER(?)", (nombre,))
+            elif has_nombre_legacy:
+                cur.execute("SELECT id FROM archivos WHERE LOWER(nombre) = LOWER(?)", (nombre,))
+            else:
+                cur.execute("SELECT id FROM archivos WHERE 1=0")  # no-op
+            if cur.fetchone():
+                raise ValueError(f"Ya existe un archivo con el nombre '{nombre}'")
+
+        # Generar código de identificación único
+        codigo = kwargs.get('codigo_identificacion') or f"ARC{int(time.time())}"
+        siglas_final = siglas or _infer_siglas(nombre)
+
+        # Mapeo de campos legacy: direccion puede venir como direccion_completa en kwargs
+        direccion_final = kwargs.get('direccion_completa') or direccion
+        contacto_final = kwargs.get('contacto_responsable') or contacto
+        url_final = kwargs.get('url_web') or url
+
+        # Insertar considerando columnas legacy
+        if has_nombre_legacy:
+            # Algunas DB antiguas tienen 'nombre' NOT NULL. Insertamos en ambas.
+            cur.execute(
+                """INSERT INTO archivos(
+                    codigo_identificacion, nombre, nombre_oficial, siglas, tipo_institucion,
+                    direccion_completa, ciudad, provincia, pais,
+                    contacto_responsable, email, telefono, url,
+                    coordenadas_geograficas, horario_atencion, condiciones_acceso, notas
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    codigo, nombre, nombre, siglas_final, kwargs.get('tipo_institucion', 'archivo'),
+                    direccion_final, kwargs.get('ciudad'), kwargs.get('provincia'), kwargs.get('pais', 'España'),
+                    contacto_final, email, telefono, url_final,
+                    kwargs.get('coordenadas_geograficas'), kwargs.get('horario_atencion'),
+                    kwargs.get('condiciones_acceso'), kwargs.get('notas')
+                )
+            )
+        else:
+            cur.execute(
+                """INSERT INTO archivos(
+                    codigo_identificacion, nombre_oficial, siglas, tipo_institucion,
+                    direccion_completa, ciudad, provincia, pais,
+                    contacto_responsable, email, telefono, url, 
+                    coordenadas_geograficas, horario_atencion, condiciones_acceso, notas
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    codigo, nombre, siglas_final, kwargs.get('tipo_institucion', 'archivo'),
+                    direccion_final, kwargs.get('ciudad'), kwargs.get('provincia'), kwargs.get('pais', 'España'),
+                    contacto_final, email, telefono, url_final,
+                    kwargs.get('coordenadas_geograficas'), kwargs.get('horario_atencion'), 
+                    kwargs.get('condiciones_acceso'), kwargs.get('notas')
+                )
+            )
+
+        rid = cur.lastrowid
+        conn.commit()
+        return rid
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def update_archivo(base_path: Path, archivo_id: int, **kwargs) -> bool:
     db_path = base_path / "data" / GLOBAL_DB
-    conn = sqlite3.connect(db_path); cur = conn.cursor()
-    fields = []
-    values = []
-    
-    # Mapear campos legacy a nuevos campos
-    field_mapping = {
-        'nombre': 'nombre_oficial',
-        'direccion': 'direccion_completa',
-        'contacto': 'contacto_responsable'
-    }
-    
-    for k in ("nombre", "nombre_oficial", "siglas", "codigo_identificacion", "tipo_institucion",
-              "direccion", "direccion_completa", "ciudad", "provincia", "pais",
-              "contacto", "contacto_responsable", "email", "telefono", "url", "notas"):
-        if k in kwargs:
-            field_name = field_mapping.get(k, k)
-            fields.append(f"{field_name}=?")
-            values.append(kwargs[k])
-    
-    if not fields:
-        conn.close(); return False
-    
-    fields.append("updated_at=CURRENT_TIMESTAMP")
-    values.append(archivo_id)
-    cur.execute(f"UPDATE archivos SET {', '.join(fields)} WHERE id=?", values)
-    conn.commit(); conn.close(); return True
+    conn = sqlite3.connect(db_path, timeout=15)
+    try:
+        cur = conn.cursor()
+        fields = []
+        values = []
+
+        # Mapear campos legacy a nuevos campos
+        field_mapping = {
+            'nombre': 'nombre_oficial',
+            'direccion': 'direccion_completa',
+            'contacto': 'contacto_responsable'
+        }
+
+        for k in ("nombre", "nombre_oficial", "siglas", "codigo_identificacion", "tipo_institucion",
+                  "direccion", "direccion_completa", "ciudad", "provincia", "pais",
+                  "contacto", "contacto_responsable", "email", "telefono", "url",
+                  "coordenadas_geograficas", "horario_atencion", "condiciones_acceso", "notas"):
+            if k in kwargs:
+                field_name = field_mapping.get(k, k)
+                fields.append(f"{field_name}=?")
+                values.append(kwargs[k])
+
+        if not fields:
+            return False
+
+        fields.append("updated_at=CURRENT_TIMESTAMP")
+        values.append(archivo_id)
+        cur.execute(f"UPDATE archivos SET {', '.join(fields)} WHERE id=?", values)
+        conn.commit();
+        return True
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def delete_archivo(base_path: Path, archivo_id: int) -> bool:

@@ -1,7 +1,18 @@
 
+import os
+# Suppress OpenCV logging before import - set to SILENT level
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+
 import subprocess, shutil
 try:
     import cv2
+    # Additional runtime suppression (though env vars should handle most)
+    try:
+        cv2.setLogLevel(0)  # 0 = SILENT
+    except Exception:
+        pass
 except Exception:
     cv2=None
 class AutoExposureController:
