@@ -552,9 +552,29 @@ class CameraScanner:
                     disp = state['pil'] if (new_w == w and new_h == h) else state['pil'].resize((new_w, new_h), Image.Resampling.LANCZOS)
                     photo = ImageTk.PhotoImage(disp)
                     canvas.delete("all")
-                    canvas.create_image(0, 0, anchor="nw", image=photo)
+                    
+                    # Center the image in the canvas
+                    cw = max(1, canvas.winfo_width())
+                    ch = max(1, canvas.winfo_height())
+                    x = max(new_w, cw) // 2
+                    y = max(new_h, ch) // 2
+                    canvas.create_image(x, y, anchor="center", image=photo)
                     canvas.image = photo
-                    canvas.config(scrollregion=(0, 0, new_w, new_h))
+                    
+                    # Scroll region: max of canvas size or image size to allow centering
+                    scroll_w = max(cw, new_w)
+                    scroll_h = max(ch, new_h)
+                    canvas.config(scrollregion=(0, 0, scroll_w, scroll_h))
+                    
+                    # Center the viewport on the image
+                    if new_w < cw:
+                        canvas.xview_moveto(0)
+                    else:
+                        canvas.xview_moveto((new_w - cw) / (2 * scroll_w))
+                    if new_h < ch:
+                        canvas.yview_moveto(0)
+                    else:
+                        canvas.yview_moveto((new_h - ch) / (2 * scroll_h))
                 except Exception as e:
                     print(f"Preview render error: {e}")
 
@@ -606,7 +626,8 @@ class CameraScanner:
                     return
 
                 state['pil'] = pil
-                # If fit is active, recompute; else keep current scale
+                # Auto-fit to window when loading a new image
+                state['fit'] = True
                 render()
                 # Update selected/highlight in gallery
                 self._selected_index = idx_clamped
