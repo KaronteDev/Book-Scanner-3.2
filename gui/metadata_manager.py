@@ -130,6 +130,7 @@ FIELD_HELP = {
     # Archivos
     'archivo_nombre': 'Nombre oficial completo de la institución o archivo. Según ISAD(G) 3.1.2.',
     'archivo_siglas': 'Siglas o acrónimo oficial del archivo (ej: AHN, AGI, BNE). Max 6 caracteres.',
+    'archivo_abreviatura': 'Código corto nivel 2 de carpetas (máx 6 caracteres, ej: AHN). Estructura: proyecto/archivo/fondo_signatura/',
     'archivo_codigo': 'Código único de identificación del repositorio según estándares nacionales.',
     'archivo_tipo': 'Tipo de institución: archivo, biblioteca, museo, centro de documentación.',
     'archivo_direccion': 'Dirección postal completa de la sede principal.',
@@ -147,6 +148,7 @@ FIELD_HELP = {
     
     # Fondos
     'fondo_nombre': 'Título o nombre del fondo documental según ISAD(G) 3.1.2.',
+    'fondo_abreviatura': 'Código corto nivel 3 de carpetas (máx 4 caracteres, ej: CONS). Estructura: proyecto/archivo/fondo_signatura/',
     'fondo_codigo': 'Código de referencia del fondo según ISAD(G) 3.1.1 (ej: ES.28079.AHN/1.1).',
     'fondo_titulo': 'Título formal del fondo documental según ISAD(G) 3.1.2.',
     'fondo_nivel': 'Nivel de descripción: fonds, series, file, item según ISAD(G) 3.1.4.',
@@ -181,6 +183,8 @@ FIELD_HELP = {
     'proyecto_titulo_alt': 'Título alternativo o variante según Dublin Core.',
     'proyecto_codigo_ref': 'Código de referencia archivístico completo (ej: ES.28079.AHN/1.1/25).',
     'proyecto_signatura': 'Signatura topográfica del documento original.',
+    'proyecto_abreviatura': 'Código corto nivel 1 de carpetas (máx 8 caracteres, ej: LEG1234). Estructura: proyecto/archivo/fondo_signatura/',
+    'proyecto_tipo_pub': 'Tipo de documento: libro, revista, manuscrito, mapa, fotografía, etc. Facilita la catalogación.',
     'proyecto_nivel': 'Nivel de descripción: collection, file, item según ISAD(G).',
     'proyecto_tipo_doc': 'Tipo de documento (carta, manuscrito, registro, etc.).',
     'proyecto_tipo_mat': 'Tipo de material (papel, pergamino, textil, etc.).',
@@ -807,21 +811,28 @@ class MetadataManager(tk.Toplevel):
     def _delete_selected_fondos_bulk(self):
         ids = self._selected_ids(self.tree_fond, 0)
         if not ids:
+            messagebox.showwarning("Eliminar", "Seleccione al menos un fondo", parent=self)
             return
-        if not messagebox.askyesno("Eliminar", f"¿Eliminar {len(ids)} fondo(s)?", parent=self):
+        if not messagebox.askyesno("Eliminar", f"¿Eliminar {len(ids)} fondo(s) seleccionados?", parent=self):
             return
-        ok = 0; errs = []
-        for fid in ids:
-            try:
-                db.delete_fondo(self.base_path, fid)
-                ok += 1
-            except Exception as e:
-                errs.append(f"ID {fid}: {e}")
+        
+        # Usar función optimizada de eliminación masiva
+        deleted_count, errors = db.delete_fondos_bulk(self.base_path, ids)
+        
         self._reload_fondos()
-        msg = f"✓ Eliminados: {ok} fondo(s)"
-        if errs:
-            msg += f"\n✗ Errores ({len(errs)}):\n" + "\n".join(errs[:10])
-        (Messagebox.show_info(title="Fondos", message=msg, parent=self) if Messagebox else messagebox.showinfo("Fondos", msg, parent=self))
+        
+        msg = f"✓ Eliminados: {deleted_count} fondo(s)"
+        if errors:
+            msg += f"\n✗ Errores ({len(errors)}):\n" + "\n".join(errors[:10])
+            if Messagebox:
+                Messagebox.show_warning(title="Fondos", message=msg, parent=self)
+            else:
+                messagebox.showwarning("Fondos", msg, parent=self)
+        else:
+            if Messagebox:
+                Messagebox.show_info(title="Fondos", message=msg, parent=self)
+            else:
+                messagebox.showinfo("Fondos", msg, parent=self)
 
     # ---- ETIQUETAS ----
     def _build_tab_etiquetas(self):
@@ -910,6 +921,8 @@ class EditorProyecto(tk.Toplevel):
         self.var_autor = tk.StringVar()
         self.var_tipo = tk.StringVar()
         self.var_sign = tk.StringVar()
+        self.var_abreviatura = tk.StringVar()
+        self.var_tipo_publicacion_id = tk.IntVar(value=0)
         self.var_archivo = tk.StringVar()
         self.var_fondo = tk.StringVar()
         self.var_tema = tk.StringVar()
@@ -930,6 +943,30 @@ class EditorProyecto(tk.Toplevel):
         add_label("Autor:"); add_entry(self.var_autor)
         add_label("Tipo:"); add_entry(self.var_tipo)
         add_label("Signatura:"); add_entry(self.var_sign)
+        
+        # NUEVO: Abreviatura
+        add_label("Abreviatura:")
+        abrev_frame = ttk.Frame(frm)
+        abrev_frame.grid(row=row, column=1, sticky='w', padx=6, pady=4); row += 1
+        ttk.Entry(abrev_frame, textvariable=self.var_abreviatura, width=15).pack(side=tk.LEFT)
+        help_lbl = ttk.Label(abrev_frame, text="ℹ️", cursor="question_arrow", foreground="#666")
+        help_lbl.pack(side=tk.LEFT, padx=(6,0))
+        ToolTip(help_lbl, "Código corto nivel 1 de carpetas (ej: LEG1234).\nEstructura: proyecto/archivo/fondo_signatura")
+        
+        # NUEVO: Tipo de publicación
+        add_label("Tipo de publicación:")
+        tipo_pub_frame = ttk.Frame(frm)
+        tipo_pub_frame.grid(row=row, column=1, sticky='w', padx=6, pady=4); row += 1
+        
+        # Cargar tipos de publicación
+        self._tipos_publicacion = db.list_tipos_publicacion(self.base_path)
+        tipo_pub_opts = ["(ninguno)"] + [f"{t['id']} · {t['nombre']}" for t in self._tipos_publicacion]
+        self.cmb_tipo_pub = ttk.Combobox(tipo_pub_frame, values=tipo_pub_opts, state='readonly', width=30)
+        self.cmb_tipo_pub.current(0)
+        self.cmb_tipo_pub.pack(side=tk.LEFT)
+        help_lbl2 = ttk.Label(tipo_pub_frame, text="ℹ️", cursor="question_arrow", foreground="#666")
+        help_lbl2.pack(side=tk.LEFT, padx=(6,0))
+        ToolTip(help_lbl2, "Tipo de documento: libro, revista, manuscrito, mapa, fotografía, etc.")
 
         # Archivo + Fondo combos
         add_label("Archivo (institución):")
@@ -1083,8 +1120,19 @@ class EditorProyecto(tk.Toplevel):
         self.var_autor.set(row.get('autor') or '')
         self.var_tipo.set(row.get('tipo_documento') or '')
         self.var_sign.set(row.get('signatura') or '')
+        self.var_abreviatura.set(row.get('abreviatura') or '')
         self.var_tema.set(row.get('tema') or '')
         self.var_fecha.set(row.get('fecha') or '')
+        
+        # Tipo de publicación
+        tipo_pub_id = row.get('tipo_publicacion_id')
+        if tipo_pub_id:
+            for i, t in enumerate(self._tipos_publicacion):
+                if t.get('id') == tipo_pub_id:
+                    self.cmb_tipo_pub.current(i + 1)  # +1 porque "(ninguno)" es el índice 0
+                    break
+        else:
+            self.cmb_tipo_pub.current(0)
         
         # Load selected tags from N:M relationship
         project_tags = db.list_project_tags(self.base_path, project_id)
@@ -1144,6 +1192,15 @@ class EditorProyecto(tk.Toplevel):
         selected_indices = self.lst_tags.curselection()
         etiqueta_ids = [self._all_tags[i].get('id') for i in selected_indices]
         
+        # Tipo de publicación
+        tipo_pub_id = None
+        selected_tipo_pub = self.cmb_tipo_pub.get()
+        if selected_tipo_pub and selected_tipo_pub != "(ninguno)":
+            try:
+                tipo_pub_id = int(selected_tipo_pub.split('·')[0].strip())
+            except Exception:
+                pass
+        
         # Fondo
         fid = None
         if self.var_fondo.get():
@@ -1159,6 +1216,8 @@ class EditorProyecto(tk.Toplevel):
             autor=self.var_autor.get().strip(),
             tema=self.var_tema.get().strip(),
             fecha=self.var_fecha.get().strip(),
+            abreviatura=self.var_abreviatura.get().strip(),
+            tipo_publicacion_id=tipo_pub_id,
             fondo_id=fid,
             etiqueta_ids=etiqueta_ids,
         )
@@ -1212,6 +1271,7 @@ class EditorArchivo(tk.Toplevel):
         # Variables
         self.v_nombre = tk.StringVar()
         self.v_siglas = tk.StringVar()
+        self.v_abreviatura = tk.StringVar()
         self.v_codigo = tk.StringVar()
         self.v_tipo = tk.StringVar(value='archivo')
         self.v_dir = tk.StringVar()
@@ -1240,6 +1300,10 @@ class EditorArchivo(tk.Toplevel):
         
         create_field_with_help(frm, row, "Siglas", FIELD_HELP['archivo_siglas'], 
                               self.v_siglas, entry_width=15)
+        row += 1
+        
+        create_field_with_help(frm, row, "Abreviatura", FIELD_HELP['archivo_abreviatura'], 
+                              self.v_abreviatura, entry_width=10)
         row += 1
         
         create_field_with_help(frm, row, "Código ID", FIELD_HELP['archivo_codigo'], 
@@ -2028,6 +2092,7 @@ class EditorArchivo(tk.Toplevel):
             return
         self.v_nombre.set(row.get('nombre') or row.get('nombre_oficial') or '')
         self.v_siglas.set(row.get('siglas') or '')
+        self.v_abreviatura.set(row.get('abreviatura') or '')
         self.v_codigo.set(row.get('codigo_identificacion') or '')
         self.v_tipo.set(row.get('tipo_institucion') or 'archivo')
         self.v_dir.set(row.get('direccion') or '')
@@ -2052,6 +2117,7 @@ class EditorArchivo(tk.Toplevel):
         data = {
             'nombre': nombre,
             'siglas': self.v_siglas.get().strip() or None,
+            'abreviatura': self.v_abreviatura.get().strip() or None,
             'codigo_identificacion': self.v_codigo.get().strip() or None,
             'tipo_institucion': self.v_tipo.get().strip() or 'archivo',
             'direccion': self.v_dir.get().strip() or None,
@@ -2106,6 +2172,7 @@ class EditorFondo(tk.Toplevel):
         
         # Variables
         self.v_nombre = tk.StringVar()
+        self.v_abreviatura = tk.StringVar()
         self.v_codigo = tk.StringVar()
         self.v_desc = tk.StringVar()
         self.v_desde = tk.StringVar()
@@ -2137,6 +2204,10 @@ class EditorFondo(tk.Toplevel):
         
         create_field_with_help(frm, row, "Título/Nombre *", FIELD_HELP['fondo_nombre'], 
                               self.v_nombre, entry_width=50, required=True)
+        row += 1
+        
+        create_field_with_help(frm, row, "Abreviatura", FIELD_HELP['fondo_abreviatura'], 
+                              self.v_abreviatura, entry_width=10)
         row += 1
         
         create_field_with_help(frm, row, "Código referencia", FIELD_HELP['fondo_codigo'], 
@@ -2193,6 +2264,7 @@ class EditorFondo(tk.Toplevel):
         if not row:
             return
         self.v_nombre.set(row.get('nombre') or row.get('titulo') or '')
+        self.v_abreviatura.set(row.get('abreviatura') or '')
         self.v_codigo.set(row.get('codigo_referencia') or '')
         self.v_desc.set(row.get('descripcion') or '')
         self.v_desde.set(row.get('periodo_inicio') or row.get('fecha_inicial') or '')
@@ -2219,6 +2291,7 @@ class EditorFondo(tk.Toplevel):
         
         data = {
             'nombre': nombre,
+            'abreviatura': self.v_abreviatura.get().strip() or None,
             'codigo_referencia': self.v_codigo.get().strip() or None,
             'descripcion': self.v_desc.get().strip() or None,
             'archivo_id': a_id,

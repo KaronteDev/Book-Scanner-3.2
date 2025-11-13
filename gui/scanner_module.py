@@ -41,6 +41,10 @@ try:
     from gui.metadata_manager import open_metadata_manager
 except Exception:
     open_metadata_manager = None
+try:
+    from gui.capture_dialog import show_capture_dialog
+except Exception:
+    show_capture_dialog = None
 
 try:
     import cv2
@@ -386,6 +390,72 @@ class CameraScanner:
             return tkimg
         except Exception:
             return None
+    
+    def _is_item_visible(self, item_widget) -> bool:
+        """Verificar si un widget está visible en el canvas viewport"""
+        try:
+            # Obtener coordenadas del widget relativas al canvas
+            y1 = item_widget.winfo_y()
+            y2 = y1 + item_widget.winfo_height()
+            
+            # Obtener viewport del canvas
+            yview = self.gallery_canvas.yview()
+            canvas_height = self.gallery_canvas.winfo_height()
+            
+            # Calcular región visible
+            scroll_region = self.gallery_canvas.cget('scrollregion').split()
+            if len(scroll_region) == 4:
+                total_height = float(scroll_region[3])
+                visible_top = yview[0] * total_height
+                visible_bottom = yview[1] * total_height
+                
+                # Verificar intersección (con margen de 100px para precargar)
+                margin = 100
+                return not (y2 + margin < visible_top or y1 - margin > visible_bottom)
+            
+            return True  # Si no podemos calcular, asumir visible
+        except Exception:
+            return True
+
+    def _load_visible_thumbnails(self):
+        """Cargar thumbnails solo para items visibles"""
+        if not hasattr(self, 'gallery_view'):
+            return
+        
+        t_width = self._thumb_target_width()
+        
+        for idx, child in enumerate(self.gallery_view.winfo_children()):
+            if not self._is_item_visible(child):
+                continue
+            
+            # Buscar el label de imagen dentro del item
+            try:
+                filename = self._gallery_order[idx]
+                key = (filename, t_width)
+                
+                # Si ya está cargada, skip
+                if key in self._thumb_cache:
+                    continue
+                
+                # Cargar thumbnail
+                thumb = self._thumb_for(filename, t_width)
+                if thumb:
+                    # Actualizar el label de imagen existente
+                    for widget in child.winfo_children():
+                        if isinstance(widget, tk.Frame):
+                            for subwidget in widget.winfo_children():
+                                if isinstance(subwidget, (tk.Frame,)):
+                                    for label in subwidget.winfo_children():
+                                        if isinstance(label, tk.Label) and hasattr(label, 'image'):
+                                            label.config(image=thumb)
+                                            label.image = thumb
+                                            break
+                                elif isinstance(subwidget, tk.Label) and hasattr(subwidget, 'image'):
+                                    subwidget.config(image=thumb)
+                                    subwidget.image = thumb
+                                    break
+            except Exception:
+                continue
 
     def _build_gallery(self):
         # Clear
@@ -414,8 +484,31 @@ class CameraScanner:
             inner.pack(fill=tk.X, expand=True)
             bind_mousewheel(inner)
 
-            thumb = self._thumb_for(fn, t_width)
-            if thumb:
+            # LAZY LOADING: Solo crear placeholder, no cargar imagen aún
+            # Creamos un label vacío que se llenará cuando sea visible
+            thumb = None  # No cargar ahora
+            
+            # Crear label placeholder
+            pad_px = self._thumb_padding_px(t_width)
+            if pad_px > 0:
+                pad_frame = tk.Frame(inner, bg=self.thumb_pad_color)
+                pad_frame.pack(padx=6, pady=(6, 2), anchor='center')
+                bind_mousewheel(pad_frame)
+                lbl_img = tk.Label(pad_frame, bg=self.thumb_pad_color, width=t_width//10, height=10)
+                lbl_img.image = None  # Marca para lazy loading
+                lbl_img.pack(padx=pad_px, pady=pad_px)
+                # Bind events on both frame and label
+                for wdg in (pad_frame, lbl_img):
+                    wdg.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
+                    wdg.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+                    bind_mousewheel(wdg)
+            else:
+                lbl_img = tk.Label(inner, bg=bg, width=t_width//10, height=10)
+                lbl_img.image = None  # Marca para lazy loading
+                lbl_img.pack(padx=6, pady=(6, 2), anchor='center')
+                lbl_img.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
+                lbl_img.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
+                bind_mousewheel(lbl_img)
                 pad_px = self._thumb_padding_px(t_width)
                 if pad_px > 0:
                     pad_frame = tk.Frame(inner, bg=self.thumb_pad_color)
@@ -442,6 +535,26 @@ class CameraScanner:
             lbl_text.bind('<Button-1>', lambda e, i=idx: self._on_thumb_click(i, e))
             lbl_text.bind('<Double-Button-1>', lambda e, i=idx: self._open_preview(i))
             bind_mousewheel(lbl_text)
+            
+            # Botones de rotación
+            btn_frame = tk.Frame(item, bg=bg)
+            btn_frame.pack(fill=tk.X, padx=6, pady=(0, 6))
+            bind_mousewheel(btn_frame)
+            
+            ttk.Label(btn_frame, text="🔄", background=bg).pack(side=tk.LEFT, padx=(0, 4))
+            
+            for angle, symbol in [(270, "↶90°"), (90, "↷90°"), (180, "⤾180°")]:
+                btn = ttk.Button(
+                    btn_frame,
+                    text=symbol,
+                    width=6,
+                    command=lambda a=angle, f=fn: self._rotate_image(f, a)
+                )
+                btn.pack(side=tk.LEFT, padx=2)
+                bind_mousewheel(btn)
+        
+        # Iniciar carga lazy de thumbnails visibles
+        self.parent.after(50, self._load_visible_thumbnails)
 
     def _thumb_padding_px(self, t_width: int) -> int:
         """Compute pixel padding for thumbnail based on percentage control and target width."""
@@ -517,6 +630,8 @@ class CameraScanner:
                 return 'break'
             step = -1 if delta > 0 else 1
             self.gallery_canvas.yview_scroll(step, 'units')
+            # Lazy load thumbnails después del scroll
+            self._schedule_lazy_load()
         except Exception:
             pass
         return 'break'
@@ -525,9 +640,20 @@ class CameraScanner:
         """Scroll helper for Linux button-4/5 events."""
         try:
             self.gallery_canvas.yview_scroll(direction, 'units')
+            # Lazy load thumbnails después del scroll
+            self._schedule_lazy_load()
         except Exception:
             pass
         return 'break'
+    
+    def _schedule_lazy_load(self):
+        """Programar carga lazy de thumbnails (throttled)"""
+        try:
+            if hasattr(self, '_lazy_load_after') and self._lazy_load_after:
+                self.parent.after_cancel(self._lazy_load_after)
+        except Exception:
+            pass
+        self._lazy_load_after = self.parent.after(100, self._load_visible_thumbnails)
 
     def _scroll_selected_into_view(self):
         """Ensure the selected gallery item is visible by adjusting the canvas yview."""
@@ -840,6 +966,45 @@ class CameraScanner:
         except Exception:
             pass
         return 'break'
+    
+    def _rotate_image(self, filename: str, angle: int):
+        """Rotar imagen de la galería"""
+        try:
+            from modules.image_rotation import rotate_image_file
+            from pathlib import Path
+            
+            img_path = self.output_dir / filename
+            if not img_path.exists():
+                if Messagebox:
+                    Messagebox.show_error(title="Rotación", message=f"Imagen no encontrada: {filename}", parent=self.parent)
+                else:
+                    messagebox.showerror("Rotación", f"Imagen no encontrada: {filename}", parent=self.parent)
+                return
+            
+            # Rotar imagen
+            success = rotate_image_file(img_path, angle)
+            
+            if success:
+                # Invalidar cache de thumbnail
+                self._thumb_cache.pop(filename, None)
+                
+                # Reconstruir galería para actualizar el thumbnail
+                self._build_gallery()
+                
+                if Messagebox:
+                    Messagebox.show_info(title="Rotación", message=f"Imagen rotada {angle}° correctamente", parent=self.parent)
+                else:
+                    messagebox.showinfo("Rotación", f"Imagen rotada {angle}° correctamente", parent=self.parent)
+            else:
+                if Messagebox:
+                    Messagebox.show_error(title="Rotación", message="No se pudo rotar la imagen", parent=self.parent)
+                else:
+                    messagebox.showerror("Rotación", "No se pudo rotar la imagen", parent=self.parent)
+        except Exception as e:
+            if Messagebox:
+                Messagebox.show_error(title="Rotación", message=f"Error al rotar: {str(e)}", parent=self.parent)
+            else:
+                messagebox.showerror("Rotación", f"Error al rotar: {str(e)}", parent=self.parent)
     
     def detect_cameras(self, max_index: int = 8) -> List[tuple]:
         """Detect available cameras and return list of (index, name, max_width, max_height) tuples"""
@@ -1429,6 +1594,15 @@ class CameraScanner:
             else:
                 messagebox.showwarning("Captura", "Cámara no disponible", parent=self.root)
             return
+        
+        # Show metadata dialog before capture
+        if show_capture_dialog:
+            metadata = show_capture_dialog(self.root, self.output_dir)
+            if metadata is None:
+                # User cancelled
+                return
+            # metadata is either {} (skip) or dict with values
+            # We'll store it for later use (could be saved with image filename in JSON)
         
         ret, frame = self.cap.read()
         if not ret:
