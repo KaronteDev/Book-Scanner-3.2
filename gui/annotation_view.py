@@ -119,6 +119,13 @@ class AnnotationWindow:
             text="⚙️ Tablas…",
             command=lambda: (open_metadata_manager(self.root, focus_tab='archivos') if open_metadata_manager else None)
         ).pack(side=tk.LEFT, padx=5)
+
+        # Coordinates picker (browser-based interactive map)
+        ttk.Button(
+            toolbar,
+            text="📍 Coordenadas",
+            command=self.pick_coordinates
+        ).pack(side=tk.LEFT, padx=5)
         
         self.lang_var = tk.StringVar(value="spa")
         ttk.Label(toolbar, text="Idioma:").pack(side=tk.LEFT, padx=(10,2))
@@ -348,6 +355,28 @@ class AnnotationWindow:
         self.root.bind('<Control-p>', lambda e: self.stop_tts())
         self.root.bind('<Control-s>', lambda e: self.save_correction())
         self.root.bind('<F5>', lambda e: self.run_ocr())
+
+    def pick_coordinates(self):
+        try:
+            # Lazy import to avoid hard dependency at module import time
+            from gui.widgets.coords_picker import open_coords_picker
+        except Exception:
+            if Messagebox:
+                Messagebox.show_error(title="Coordenadas", message="No se pudo cargar el selector de coordenadas.")
+            else:
+                messagebox.showerror("Coordenadas", "No se pudo cargar el selector de coordenadas.")
+            return
+
+        # Use Madrid center as default if no project metadata is present
+        res = open_coords_picker(self.root, initial_lat=40.4168, initial_lon=-3.7038)
+        if res:
+            lat, lon = res
+            # For now, just show in status bar; wiring to DB/annotations can be added later
+            self.status_bar['text'] = f"Coordenadas seleccionadas: {lat:.6f}, {lon:.6f}"
+            if Messagebox:
+                Messagebox.show_info(title="Coordenadas", message=f"{lat:.6f}, {lon:.6f}")
+            else:
+                messagebox.showinfo("Coordenadas", f"{lat:.6f}, {lon:.6f}")
 
     # --- Version history dialog with diff view ---
     def open_version_history(self):

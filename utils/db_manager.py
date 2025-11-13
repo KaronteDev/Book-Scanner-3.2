@@ -903,7 +903,7 @@ def create_project(
     **kwargs
 ) -> int:
     """Create new project in global database and initialize project DB.
-    Folder name rule: <SIGLAS_ARCHIVO>_<SIGNATURA> under projects root.
+    Folder name rule: <ABREV_PROYECTO>/<ABREV_ARCHIVO>/<ABREV_FONDO>_<SIGNATURA>
     """
     db_path = base_path / "data" / GLOBAL_DB
     conn = sqlite3.connect(db_path)
@@ -919,31 +919,59 @@ def create_project(
             conn.close()
             raise ValueError(f"Signatura inválida: {msg}")
     
+    # Obtener abreviaturas de archivo y fondo
     fondo_id = kwargs.get('fondo_id')
-    siglas = None
-    if fondo_id:
-        row = cur.execute("SELECT f.archivo_id, a.siglas, a.nombre FROM fondos f LEFT JOIN archivos a ON a.id=f.archivo_id WHERE f.id=?", (fondo_id,)).fetchone()
-        if row:
-            siglas = (row['siglas'] or '').strip() or _infer_siglas(row['nombre'] or '')
-    siglas = (siglas or 'ARC').upper()
+    abrev_archivo = None
+    abrev_fondo = None
     
-    # Normalizar nombre de carpeta
-    folder_name = normalize_folder_name(siglas, signatura or _slugify(titulo))
+    if fondo_id:
+        row = cur.execute("""
+            SELECT f.abreviatura as fondo_abrev, 
+                   a.abreviatura as archivo_abrev,
+                   a.siglas
+            FROM fondos f 
+            LEFT JOIN archivos a ON a.id=f.archivo_id 
+            WHERE f.id=?
+        """, (fondo_id,)).fetchone()
+        if row:
+            abrev_fondo = row['fondo_abrev'] or 'FONDO'
+            abrev_archivo = row['archivo_abrev'] or row['siglas'] or 'ARC'
+    
+    abrev_archivo = abrev_archivo or 'ARC'
+    abrev_fondo = abrev_fondo or 'FONDO'
+    
+    # Generar abreviatura del proyecto (usar signatura o título)
+    abrev_proyecto = kwargs.get('abreviatura')
+    if not abrev_proyecto:
+        if signatura:
+            abrev_proyecto = _slugify(signatura)[:8].upper()
+        else:
+            palabras = [p for p in titulo.replace('-', ' ').split() if len(p) > 2]
+            if palabras:
+                abrev_proyecto = ''.join(p[0] for p in palabras[:6]).upper()
+            else:
+                abrev_proyecto = _slugify(titulo)[:6].upper()
+    
+    # Construir ruta jerárquica: proyecto/archivo/fondo_signatura
     project_root = _projects_root()
-    carpeta_raiz = project_root / folder_name
+    folder_name = f"{abrev_fondo}_{_slugify(signatura).upper()}" if signatura else abrev_fondo
+    carpeta_raiz = project_root / abrev_proyecto / abrev_archivo / folder_name
     carpeta_raiz.mkdir(parents=True, exist_ok=True)
 
     # Insert project row
     cur.execute(
         """
         INSERT INTO proyectos 
-        (titulo, signatura, tipo_documento, autor, tema, etiquetas, fecha, fondo_id, carpeta_raiz, db_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (titulo, signatura, abreviatura, tipo_documento, tipo_publicacion_id, 
+         autor, tema, etiquetas, fecha, fondo_id, carpeta_raiz, db_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             titulo,
             signatura,
+            abrev_proyecto,
             kwargs.get('tipo_documento', ''),
+            kwargs.get('tipo_publicacion_id'),
             kwargs.get('autor', ''),
             kwargs.get('tema', ''),
             kwargs.get('etiquetas', ''),  # Campo legacy, mantener por compatibilidad
@@ -1025,6 +1053,9 @@ def list_archivos(base_path: Path) -> List[Dict[str, Any]]:
             d['contacto'] = d['contacto_responsable']
         elif 'contacto' not in d and 'contacto_responsable' in d:
             d['contacto'] = d.get('contacto_responsable')
+        # Generar abreviatura si no existe
+        if not d.get('abreviatura'):
+            d['abreviatura'] = _infer_siglas(d.get('nombre', 'ARC'))
         result.append(d)
     return result
 
@@ -1067,6 +1098,9 @@ def create_archivo(base_path: Path, nombre: str, siglas: str = None, direccion: 
         # Generar código de identificación único
         codigo = kwargs.get('codigo_identificacion') or f"ARC{int(time.time())}"
         siglas_final = siglas or _infer_siglas(nombre)
+        
+        # Abreviatura para carpetas (usar kwargs o inferir desde siglas)
+        abreviatura = kwargs.get('abreviatura') or siglas_final[:6].upper()
 
         # Mapeo de campos legacy: direccion puede venir como direccion_completa en kwargs
         direccion_final = kwargs.get('direccion_completa') or direccion
@@ -1078,13 +1112,13 @@ def create_archivo(base_path: Path, nombre: str, siglas: str = None, direccion: 
             # Algunas DB antiguas tienen 'nombre' NOT NULL. Insertamos en ambas.
             cur.execute(
                 """INSERT INTO archivos(
-                    codigo_identificacion, nombre, nombre_oficial, siglas, tipo_institucion,
+                    codigo_identificacion, nombre, nombre_oficial, siglas, abreviatura, tipo_institucion,
                     direccion_completa, ciudad, provincia, pais,
                     contacto_responsable, email, telefono, url,
                     coordenadas_geograficas, horario_atencion, condiciones_acceso, notas
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    codigo, nombre, nombre, siglas_final, kwargs.get('tipo_institucion', 'archivo'),
+                    codigo, nombre, nombre, siglas_final, abreviatura, kwargs.get('tipo_institucion', 'archivo'),
                     direccion_final, kwargs.get('ciudad'), kwargs.get('provincia'), kwargs.get('pais', 'España'),
                     contacto_final, email, telefono, url_final,
                     kwargs.get('coordenadas_geograficas'), kwargs.get('horario_atencion'),
@@ -1094,13 +1128,13 @@ def create_archivo(base_path: Path, nombre: str, siglas: str = None, direccion: 
         else:
             cur.execute(
                 """INSERT INTO archivos(
-                    codigo_identificacion, nombre_oficial, siglas, tipo_institucion,
+                    codigo_identificacion, nombre_oficial, siglas, abreviatura, tipo_institucion,
                     direccion_completa, ciudad, provincia, pais,
                     contacto_responsable, email, telefono, url, 
                     coordenadas_geograficas, horario_atencion, condiciones_acceso, notas
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    codigo, nombre, siglas_final, kwargs.get('tipo_institucion', 'archivo'),
+                    codigo, nombre, siglas_final, abreviatura, kwargs.get('tipo_institucion', 'archivo'),
                     direccion_final, kwargs.get('ciudad'), kwargs.get('provincia'), kwargs.get('pais', 'España'),
                     contacto_final, email, telefono, url_final,
                     kwargs.get('coordenadas_geograficas'), kwargs.get('horario_atencion'), 
@@ -1133,7 +1167,7 @@ def update_archivo(base_path: Path, archivo_id: int, **kwargs) -> bool:
             'contacto': 'contacto_responsable'
         }
 
-        for k in ("nombre", "nombre_oficial", "siglas", "codigo_identificacion", "tipo_institucion",
+        for k in ("nombre", "nombre_oficial", "siglas", "abreviatura", "codigo_identificacion", "tipo_institucion",
                   "direccion", "direccion_completa", "ciudad", "provincia", "pais",
                   "contacto", "contacto_responsable", "email", "telefono", "url",
                   "coordenadas_geograficas", "horario_atencion", "condiciones_acceso", "notas"):
@@ -1204,18 +1238,29 @@ def create_fondo(base_path: Path, nombre: str, archivo_id: int = None, descripci
         siglas = (row[0] if row else 'FONDO').upper()
         codigo_ref = f"{siglas}/F{int(time.time() % 100000)}"
     
+    # Generar abreviatura desde nombre o kwargs
+    abreviatura = kwargs.get('abreviatura')
+    if not abreviatura:
+        # Tomar primeras letras significativas del nombre
+        palabras = [p for p in nombre.replace('-', ' ').split() if len(p) > 2]
+        if palabras:
+            abreviatura = ''.join(p[0] for p in palabras[:4]).upper()
+        else:
+            abreviatura = _slugify(nombre)[:4].upper()
+    
     cur.execute(
         """INSERT INTO fondos(
             codigo_referencia, titulo, descripcion, archivo_id,
             nivel_descripcion, fecha_inicial, fecha_final,
-            alcance_contenido, lengua_documentos
-        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+            alcance_contenido, lengua_documentos, abreviatura
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
         (
             codigo_ref, nombre, descripcion, archivo_id,
             kwargs.get('nivel_descripcion', 'fonds'),
             periodo_inicio, periodo_fin,
             kwargs.get('alcance_contenido'),
-            kwargs.get('lengua_documentos', 'spa')
+            kwargs.get('lengua_documentos', 'spa'),
+            abreviatura
         )
     )
     rid = cur.lastrowid; conn.commit(); conn.close(); return rid
@@ -1234,7 +1279,7 @@ def update_fondo(base_path: Path, fondo_id: int, **kwargs) -> bool:
     
     for k in ("nombre", "titulo", "codigo_referencia", "descripcion", "archivo_id", 
               "periodo_inicio", "periodo_fin", "alcance_contenido", "organizacion",
-              "nivel_descripcion", "lengua_documentos"):
+              "nivel_descripcion", "lengua_documentos", "abreviatura"):
         if k in kwargs:
             field_name = field_mapping.get(k, k)
             fields.append(f"{field_name}=?")
@@ -1430,7 +1475,8 @@ def update_project(base_path: Path, project_id: int, **kwargs) -> bool:
     fields = []
     values = []
     
-    for key in ['titulo', 'signatura', 'tipo_documento', 'autor', 'tema', 'etiquetas', 'fecha', 'fondo_id']:
+    for key in ['titulo', 'signatura', 'abreviatura', 'tipo_documento', 'tipo_publicacion_id',
+                'autor', 'tema', 'etiquetas', 'fecha', 'fondo_id']:
         if key in kwargs:
             fields.append(f"{key} = ?")
             values.append(kwargs[key])
@@ -1463,3 +1509,184 @@ def delete_project(base_path: Path, project_id: int) -> bool:
     conn.close()
     
     return True
+
+
+# ===== NUEVAS FUNCIONES PARA MEJORAS V3 =====
+
+def list_tipos_publicacion(base_path: Path) -> List[Dict[str, Any]]:
+    """Listar tipos de publicación disponibles"""
+    db_path = base_path / "data" / GLOBAL_DB
+    conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM tipos_publicacion WHERE activo=1 ORDER BY orden, nombre").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_tipo_publicacion(base_path: Path, tipo_id: int) -> Optional[Dict[str, Any]]:
+    """Obtener un tipo de publicación por ID"""
+    db_path = base_path / "data" / GLOBAL_DB
+    conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM tipos_publicacion WHERE id=?", (tipo_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_fondos_bulk(base_path: Path, fondo_ids: List[int]) -> int:
+    """Eliminar múltiples fondos en batch. Retorna número de fondos eliminados."""
+    if not fondo_ids:
+        return 0
+    
+    db_path = base_path / "data" / GLOBAL_DB
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    
+    placeholders = ','.join('?' * len(fondo_ids))
+    cur.execute(f"DELETE FROM fondos WHERE id IN ({placeholders})", fondo_ids)
+    deleted = cur.rowcount
+    
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def rotate_page_image(project_root: Path, page_id: int, angle: int) -> bool:
+    """
+    Rotar imagen de página y guardar el ángulo en BD.
+    
+    Args:
+        project_root: Ruta raíz del proyecto
+        page_id: ID de la página
+        angle: Ángulo de rotación (90, 180, 270, -90, -180, -270)
+    
+    Returns:
+        True si se rotó correctamente
+    """
+    from PIL import Image
+    
+    dbp = get_project_db_path(project_root)
+    conn = sqlite3.connect(dbp); conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    
+    # Obtener info de página
+    row = cur.execute("SELECT * FROM page WHERE id=?", (page_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    
+    page = dict(row)
+    img_path = page.get('processed_path') or page.get('original_path')
+    if not img_path or not Path(img_path).exists():
+        conn.close()
+        return False
+    
+    try:
+        # Cargar imagen
+        img = Image.open(img_path)
+        
+        # Rotar (PIL usa ángulos positivos en sentido antihorario)
+        # Normalizamos a 0, 90, 180, 270
+        angle = angle % 360
+        if angle == 90:
+            img_rotated = img.rotate(270, expand=True)  # PIL inverso
+        elif angle == 180:
+            img_rotated = img.rotate(180, expand=True)
+        elif angle == 270:
+            img_rotated = img.rotate(90, expand=True)
+        else:
+            img_rotated = img
+        
+        # Guardar sobre la misma imagen
+        img_rotated.save(img_path)
+        
+        # Actualizar ángulo acumulado en BD
+        current_angle = page.get('rotation_angle', 0) or 0
+        new_angle = (current_angle + angle) % 360
+        
+        cur.execute("UPDATE page SET rotation_angle=?, width=?, height=? WHERE id=?",
+                   (new_angle, img_rotated.width, img_rotated.height, page_id))
+        
+        # Regenerar thumbnail si existe
+        thumb_path = page.get('thumbnail_path')
+        if thumb_path and Path(thumb_path).exists():
+            from utils.image_cleaner import create_thumbnail
+            create_thumbnail(img_path, thumb_path, max_size=320)
+        
+        conn.commit()
+        conn.close()
+        return True
+        
+    except Exception as e:
+        print(f"Error rotando imagen: {e}")
+        conn.close()
+        return False
+
+
+def get_last_capture_settings(base_path: Path) -> Optional[Dict[str, Any]]:
+    """Recuperar la configuración de la última captura realizada"""
+    settings_str = get_setting(base_path, 'last_capture_settings')
+    if settings_str:
+        import json
+        try:
+            return json.loads(settings_str)
+        except Exception:
+            return None
+    return None
+
+
+def save_capture_settings(base_path: Path, settings: Dict[str, Any]) -> None:
+    """Guardar configuración de captura para reutilizar en siguiente sesión"""
+    import json
+    settings_str = json.dumps(settings, ensure_ascii=False, indent=2)
+    set_setting(base_path, 'last_capture_settings', settings_str)
+
+
+def build_project_folder_path(
+    base_path: Path,
+    proyecto_id: int = None,
+    abrev_proyecto: str = None,
+    abrev_archivo: str = None,
+    abrev_fondo: str = None,
+    signatura: str = None
+) -> Path:
+    """
+    Construir ruta de carpeta de proyecto usando abreviaturas:
+    <abrev_proyecto>/<abrev_archivo>/<abrev_fondo>_<signatura>
+    
+    Si proyecto_id se proporciona, consulta BD para obtener abreviaturas.
+    """
+    projects_root = _projects_root()
+    
+    if proyecto_id:
+        # Consultar BD para obtener datos
+        db_path = base_path / "data" / GLOBAL_DB
+        conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        row = cur.execute("""
+            SELECT p.abreviatura as proj_abrev, p.signatura,
+                   f.abreviatura as fondo_abrev,
+                   a.abreviatura as archivo_abrev
+            FROM proyectos p
+            LEFT JOIN fondos f ON p.fondo_id = f.id
+            LEFT JOIN archivos a ON f.archivo_id = a.id
+            WHERE p.id = ?
+        """, (proyecto_id,)).fetchone()
+        conn.close()
+        
+        if row:
+            abrev_proyecto = abrev_proyecto or row['proj_abrev'] or 'PROJ'
+            abrev_fondo = abrev_fondo or row['fondo_abrev'] or 'FONDO'
+            abrev_archivo = abrev_archivo or row['archivo_abrev'] or 'ARC'
+            signatura = signatura or row['signatura'] or ''
+    
+    # Valores por defecto
+    abrev_archivo = _slugify(abrev_archivo or 'ARC').upper()
+    abrev_fondo = _slugify(abrev_fondo or 'FONDO').upper()
+    abrev_proyecto = _slugify(abrev_proyecto or 'PROJ').upper()
+    signatura_slug = _slugify(signatura or '').upper()
+    
+    # Construir ruta: proyecto/archivo/fondo_signatura
+    folder_name = f"{abrev_fondo}_{signatura_slug}" if signatura_slug else abrev_fondo
+    
+    return projects_root / abrev_proyecto / abrev_archivo / folder_name
+

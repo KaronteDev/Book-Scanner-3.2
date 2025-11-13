@@ -1,18 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Servidor HTTP temporal para mapa interactivo
-Alternativa a tkinterweb cuando no renderiza correctamente
+Abrir mapa interactivo (Leaflet) en el navegador del sistema y devolver
+las coordenadas seleccionadas a la aplicación vía un servidor HTTP local.
+
+Alternativa ligera y robusta para entornos donde no se puede embeber
+un navegador (tkinterweb/cef/pywebview).
 """
 
-import http.server
-import socketserver
+import json
 import webbrowser
 import threading
-import time
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-def crear_mapa_html(lat=40.4168, lon=-3.7038, tiene_marcador=False):
+def crear_mapa_html(lat=40.4168, lon=-3.7038, tiene_marcador=False, server_port=8765):
     """Genera HTML con Leaflet para el mapa interactivo"""
     html = f"""
 <!DOCTYPE html>
@@ -187,12 +189,24 @@ def crear_mapa_html(lat=40.4168, lon=-3.7038, tiene_marcador=False):
             }}
         }}
         
-        function usarCoordenadas() {{
+        async function usarCoordenadas() {{
             if (selectedLat && selectedLon) {{
-                // Cambiar el título para señalar que se aceptaron
-                document.title = 'ACCEPTED:' + selectedLat.toFixed(6) + ',' + selectedLon.toFixed(6);
-                alert('Coordenadas confirmadas: ' + selectedLat.toFixed(6) + ',' + selectedLon.toFixed(6) + 
-                      '\\n\\nVuelve a la aplicación para continuar.');
+                const coords = selectedLat.toFixed(6) + ',' + selectedLon.toFixed(6);
+                try {{
+                    const res = await fetch('http://localhost:{server_port}/coords', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ coords }})
+                    }});
+                    if (res.ok) {{
+                        document.getElementById('status').innerText = '✅ Coordenadas enviadas a la aplicación';
+                        setTimeout(() => window.close(), 1200);
+                    }} else {{
+                        alert('No se pudieron enviar las coordenadas. Código ' + res.status);
+                    }}
+                }} catch (e) {{
+                    alert('No se pudo contactar con la aplicación. ¿Está abierta?');
+                }}
             }} else {{
                 alert('Primero selecciona un punto en el mapa');
             }}
@@ -206,43 +220,73 @@ def crear_mapa_html(lat=40.4168, lon=-3.7038, tiene_marcador=False):
 """
     return html
 
+class _CoordServer:
+    """Servidor HTTP que recibe un POST con las coordenadas."""
+    def __init__(self, port=8765):
+        self.port = port
+        self.result = None
+        self._event = threading.Event()
 
-def abrir_mapa_navegador(lat=40.4168, lon=-3.7038, tiene_marcador=False, puerto=8765):
+        parent = self
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                if self.path != '/coords':
+                    self.send_response(404); self.end_headers(); return
+                try:
+                    length = int(self.headers.get('Content-Length') or '0')
+                    data = self.rfile.read(length).decode('utf-8')
+                    payload = json.loads(data)
+                    coords = str(payload.get('coords') or '')
+                    parent.result = coords
+                    parent._event.set()
+                    self.send_response(200); self.end_headers()
+                except Exception:
+                    self.send_response(400); self.end_headers()
+
+            def log_message(self, format, *args):
+                # Silenciar logs
+                return
+
+        self.httpd = ThreadingHTTPServer(('localhost', self.port), Handler)
+
+    def start(self):
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def wait(self, timeout=120):
+        self._event.wait(timeout)
+        try:
+            self.httpd.shutdown()
+        except Exception:
+            pass
+        return self.result
+
+def abrir_mapa_navegador(lat=40.4168, lon=-3.7038, tiene_marcador=False, puerto=8765, timeout=120):
     """
-    Abre el mapa interactivo en el navegador del sistema
-    Retorna las coordenadas seleccionadas o None si se cancela
+    Abre el mapa en el navegador y espera las coordenadas confirmadas.
+    Retorna 'lat,lon' o None si expira el timeout.
     """
-    # Crear HTML temporal
-    html_content = crear_mapa_html(lat, lon, tiene_marcador)
+    # Iniciar servidor de callback
+    srv = _CoordServer(port=puerto)
+    srv.start()
+
+    # Crear HTML temporal apuntando al puerto
+    html_content = crear_mapa_html(lat, lon, tiene_marcador, server_port=puerto)
     temp_file = Path("temp_mapa_interactivo.html")
     temp_file.write_text(html_content, encoding='utf-8')
-    
-    print(f"\n📄 Mapa HTML creado: {temp_file.absolute()}")
-    print(f"🌐 Abriendo en navegador predeterminado...")
-    
-    # Abrir en navegador
+
+    # Abrir navegador
     webbrowser.open(f"file:///{temp_file.absolute()}")
-    
-    print("✅ Mapa abierto en el navegador")
-    print("   Cuando selecciones las coordenadas y hagas clic en 'Usar estas coordenadas',")
-    print("   vuelve aquí y presiona ENTER para continuar...")
-    
-    input()
-    
-    # Nota: En una implementación real, se usaría un servidor HTTP local
-    # y JavaScript comunicaría las coordenadas vía localStorage o similar
-    # Por ahora, el usuario debe copiar manualmente
-    
-    print("\n📋 Las coordenadas han sido copiadas al portapapeles.")
-    print("   Pégalas en el campo de coordenadas de la aplicación.")
-    
-    # Limpiar archivo temporal
+
+    # Esperar resultado
+    coords = srv.wait(timeout=timeout)
+
+    # Limpiar temporal
     try:
         temp_file.unlink()
-    except:
+    except Exception:
         pass
-    
-    return None
+
+    return coords
 
 
 if __name__ == "__main__":
