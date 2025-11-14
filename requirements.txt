@@ -37,3 +37,15 @@ ttkbootstrap>=1.10.0
 
 # Optional: system info
 psutil>=5.9.0
+
+# Testing & docs
+pytest>=7.0.0
+coverage>=7.0.0
+sphinx>=7.0.0
+
+# Embedded HTML in Tk
+tkinterweb>=3.13.0
+
+# Embedded browser (opcional para webview avanzada)
+cefpython3==66.0
+pyinstaller>=6.0.0

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Book 3D Viewer</title>
+<style>
+  body,html { margin:0; padding:0; overflow:hidden; font-family:Arial, sans-serif; }
+  #overlay { position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.4); color:#fff; padding:6px 10px; border-radius:4px; }
+  #annotations { position:absolute; top:0; left:0; pointer-events:none; }
+  .hotspot { position:absolute; border:2px solid #ff0; background:rgba(255,255,0,0.2); pointer-events:auto; }
+</style>
+</head>
+<body>
+<div id="overlay">Drag rotar | Rueda zoom | Click: pasar página | Doble click palabra = zoom</div>
+<canvas id="scene"></canvas>
+<div id="annotations"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+<script>
+(function(){
+  // Hotspots data structure (can be injected externally via window.HOTSPOTS before load)
+  // Each hotspot: { id, pageSide: 'left'|'right', x:0..1, y:0..1, w:0..1, h:0..1, label, type:'word'|'annotation' }
+  const injected = window.HOTSPOTS || [
+    {id:'w1', pageSide:'right', x:0.32, y:0.40, w:0.05, h:0.04, label:'Palabra demo', type:'word'},
+    {id:'a1', pageSide:'left', x:0.55, y:0.50, w:0.12, h:0.06, label:'Anotación ejemplo', type:'annotation'}
+  ];
+  const canvas = document.getElementById('scene');
+  const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+  function resize(){
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x202225);
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+  camera.position.set(0, 1, 4);
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(2,3,4);
+  scene.add(light);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+  scene.add(ambient);
+  // Simple book: two plane geometries representing pages
+  const pageGeom = new THREE.PlaneGeometry(2, 3);
+  const leftMat = new THREE.MeshPhongMaterial({color:0xf0e6d2});
+  const rightMat = new THREE.MeshPhongMaterial({color:0xf5eddc});
+  const leftPage = new THREE.Mesh(pageGeom, leftMat);
+  const rightPage = new THREE.Mesh(pageGeom, rightMat);
+  leftPage.position.x = -1.01;
+  rightPage.position.x = 1.01;
+  leftPage.rotation.y = Math.PI; // backface
+  scene.add(leftPage);
+  scene.add(rightPage);
+  let flipping = false;
+  let flipProgress = 0;
+  // Animation state
+  let targetCamPos = camera.position.clone();
+  let zooming = false;
+
+  function animate(){
+    requestAnimationFrame(animate);
+    if(flipping){
+      flipProgress += 0.04;
+      rightPage.rotation.y = -Math.PI * flipProgress;
+      if(flipProgress >= 1){ flipping = false; flipProgress = 0; rightPage.rotation.y = 0; }
+    }
+    if(zooming){
+      camera.position.lerp(targetCamPos, 0.15);
+      if(camera.position.distanceTo(targetCamPos) < 0.05){ zooming=false; }
+      camera.lookAt(0,0,0);
+    }
+    renderer.render(scene, camera);
+  }
+  animate();
+  // Interaction
+  let isDragging=false; let prevX=0; let prevY=0; let yaw=0; let pitch=0;
+  canvas.addEventListener('mousedown', e=>{ isDragging=true; prevX=e.clientX; prevY=e.clientY; });
+  window.addEventListener('mouseup', ()=> isDragging=false );
+  window.addEventListener('mousemove', e=>{
+    if(!isDragging) return;
+    yaw += (e.clientX - prevX)*0.005;
+    pitch += (e.clientY - prevY)*0.005;
+    prevX=e.clientX; prevY=e.clientY;
+    camera.position.x = 4*Math.sin(yaw);
+    camera.position.z = 4*Math.cos(yaw);
+    camera.position.y = 1 + pitch;
+    camera.lookAt(0,0,0);
+  });
+  window.addEventListener('wheel', e=>{
+    const delta = e.deltaY > 0 ? 1.1 : 0.9;
+    camera.position.multiplyScalar(delta);
+  });
+  canvas.addEventListener('click', e=>{
+    if(!flipping){ flipping=true; }
+  });
+  canvas.addEventListener('dblclick', e=>{
+    // Pick first word hotspot as demo zoom target
+    const word = injected.find(h=>h.type==='word');
+    if(word){ zoomToHotspot(word); }
+  });
+  resize();
+  // Placeholder hotspots (DOM overlay for simplicity)
+  const annotationsDiv = document.getElementById('annotations');
+  function makeHotspot(h){
+    const div = document.createElement('div');
+    div.className='hotspot';
+    div.dataset.id = h.id;
+    div.title = h.label;
+    div.style.cursor = 'pointer';
+    div.addEventListener('click', ev => {
+      if(h.type==='word'){ zoomToHotspot(h); }
+      else { console.log('Hotspot clicked', h.id); }
+    });
+    annotationsDiv.appendChild(div);
+    return div;
+  }
+
+  // Convert hotspot page-local coords to world projection -> screen coords
+  function layoutHotspots(){
+    const width = window.innerWidth, height = window.innerHeight;
+    injected.forEach(h=>{
+      if(!h._el) h._el = makeHotspot(h);
+      // page local (0..1) -> plane local coords
+      const px = (h.x - 0.5)*2; // -1..1
+      const py = (-(h.y - 0.5))*3; // book height approx 3, invert y
+      // choose page mesh
+      const pageMesh = h.pageSide==='left'? leftPage : rightPage;
+      // local point in page space
+      const vec = new THREE.Vector3(px, py, 0);
+      // transform to world
+      pageMesh.updateMatrixWorld();
+      vec.applyMatrix4(pageMesh.matrixWorld);
+      // project
+      vec.project(camera);
+      const sx = (vec.x * 0.5 + 0.5) * width;
+      const sy = (-(vec.y * 0.5) + 0.5) * height;
+      const el = h._el;
+      el.style.left = (sx - (h.w*width)/2) + 'px';
+      el.style.top = (sy - (h.h*height)/2) + 'px';
+      el.style.width = (h.w*width) + 'px';
+      el.style.height = (h.h*height) + 'px';
+    });
+  }
+  window.addEventListener('resize', layoutHotspots);
+  // Re-layout after camera movement
+  setInterval(layoutHotspots, 200);
+  layoutHotspots();
+
+  function zoomToHotspot(h){
+    // Move camera closer while keeping lookAt center
+    zooming = true;
+    const depth = 1.2; // desired distance
+    // Derive approximate angle shift to center hotspot horizontally
+    const offsetX = (h.pageSide==='left'? -0.6 : 0.6);
+    targetCamPos = new THREE.Vector3(offsetX, 0.8, depth);
+  }
+  window.zoomToHotspot = zoomToHotspot;
+  window.listHotspots = ()=> injected.map(h=>h.id);
+})();
+</script>
+</body>
+</html>

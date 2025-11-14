@@ -49,6 +49,36 @@ python gui_book_scan_tk.py
 - **Exportar → METS/ALTO**: paquete METS mínimo y ficheros ALTO simplificados por página.
 
 
+## 🚀 Roadmap Estratégico (Q4 2025 – Q2 2026)
+
+| Fase | Objetivo Principal | Entregables | Estado |
+|------|--------------------|-------------|--------|
+| Fase 1 | Separación MVC/MVP | `models/`, `views/`, `presenters/`, `services/` | Completado |
+| Fase 2 | Visualización 3D | Visor Three.js + hotspots + zoom palabra | Completado |
+| Fase 3 | App móvil (Spec) | Documento `mobile_app_spec.rst` + endpoints | Completado (spec) |
+| Fase 4 | Documentación interactiva | Sphinx embebido + ventana ayuda + tutorial | Completado |
+| Fase 5 | Testing automatizado | >70% cobertura, estructura unit/integration/e2e | Completado (93%) |
+| Fase 6 | Refactor cámara | `CaptureService` + tests start/stop/errores | Completado |
+| Fase 7 | Video Tour | Integración YouTube embebida en ventana ayuda | En progreso |
+| Fase 8 | Móvil MVP | Captura WiFi + OCR revisión táctil | Pendiente |
+| Fase 9 | Sincronización en vivo | WebSocket anotaciones/OCR/app móvil | Pendiente |
+| Fase 10 | Export 3D/Presentación | Generar animaciones y paquete demo académico | Pendiente |
+
+### Prioridades Próximas (orden sugerido)
+1. Video Tour (YouTube) integrado (botón en ayuda).  
+2. MVP App móvil (captura + pull OCR + edición).  
+3. WebSocket sync tiempo real (anotaciones/OCR).  
+4. Wizard avanzado (rama condicional según perfil).  
+5. Export bundle de Presentación (slides + 3D hotspots).  
+
+### Métricas de Calidad Actuales
+- Cobertura pruebas: 93% (objetivo base >70%).
+- Hotspots 3D: zoom palabra y layout dinámico funcional.
+- Tiempo arranque visor 3D: <1s (in-browser). Embedding CEF: pendiente.
+- Documentación Sphinx: auto-build on demand.
+
+---
+
 ## 🚀 Novedades v17 (mejoras de productividad y UX) — Nov 2025
 
 ### ✨ 10 Mejoras Mayores Implementadas

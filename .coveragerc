@@ -1,0 +1,8 @@
+[run]
+source = models,presenters,services
+omit = */__init__.py
+branch = True
+
+[report]
+show_missing = True
+skip_covered = True

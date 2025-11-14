@@ -18,6 +18,18 @@ def launch_annotator():
     subprocess.Popen([sys.executable, str(BASE_DIR/"annotator_gui.py")])
 
 def main():
+    # Chequeo de entorno previo
+    try:
+        from utils.env_check import check_environment
+        rep = check_environment()
+        if not rep.ok:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk(); root.withdraw()
+            msg = "\n".join(rep.issues)
+            messagebox.showwarning("Entorno incompleto", f"Algunas dependencias opcionales faltan:\n{msg}")
+    except Exception as e:
+        print("[WARN] Fallo chequeo entorno:", e)
     root = tk.Tk()
     root.title("GeoDocs Scanner v23 — Selector")
     root.geometry("480x240")
