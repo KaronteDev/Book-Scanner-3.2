@@ -23,7 +23,7 @@ dependencies:
   web_socket_channel: ^2.4.0
   
   # Service discovery
-  nsd: ^2.2.0
+  nsd: ^4.0.3
   
   # State management
   provider: ^6.1.1
@@ -36,6 +36,7 @@ dependencies:
   uuid: ^4.2.1
   intl: ^0.18.1
   flutter_markdown: ^0.6.18
+  flutter_markdown_plus: ^1.0.5
 
 dev_dependencies:
   flutter_test:
