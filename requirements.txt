@@ -32,6 +32,12 @@ requests>=2.28.0
 # Web server (for viewer)
 flask>=2.2.0
 
+# Mobile API server
+flask-socketio>=5.3.0
+flask-cors>=4.0.0
+zeroconf>=0.131.0
+python-socketio>=5.11.0
+
 # Optional: better UI styling
 ttkbootstrap>=1.10.0
 
