@@ -119,7 +119,8 @@ Book Scanner 3.2/
 ├── 📄 .coveragerc                      # Configuración coverage
 ├── 📄 LICENSE                          # Licencia del proyecto
 │
-└── 🗄️ geodocs_scanner.db              # Base de datos principal
+└── 🗄️ data/geodocs.db                 # Base de datos unificada (archivística + operacional)
+	⚠️ geodocs_scanner.db               # OBSOLETA - migrada a data/geodocs.db
 
 ```
 

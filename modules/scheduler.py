@@ -8,8 +8,8 @@ Lee calidad_scheduler.json o geodocs_config.json para intervalos.
 import threading, time, json, sqlite3
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-GLOBAL_DB = BASE_DIR / "geodocs_scanner.db"
+BASE_DIR = Path(__file__).resolve().parent.parent
+GLOBAL_DB = BASE_DIR / "data" / "geodocs.db"
 CFG_PATH = BASE_DIR / "quality_scheduler.json"
 
 DEFAULT_CFG = {"enabled": True, "interval_hours": 24, "max_pages_per_cycle": 500}

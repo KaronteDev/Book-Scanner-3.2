@@ -12,7 +12,7 @@ from tkinter import ttk, filedialog, messagebox
 from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
-GLOBAL_DB = BASE_DIR / "geodocs_scanner.db"
+GLOBAL_DB = BASE_DIR / "data" / "geodocs.db"
 
 def ensure_dirs(proj):
     (proj/"raw").mkdir(parents=True, exist_ok=True)
@@ -23,7 +23,7 @@ def db_connect():
 
 def next_seq(doc_id):
     with db_connect() as con:
-        row = con.execute("SELECT MAX(seq) FROM page WHERE document_id=?", (doc_id,)).fetchone()
+        row = con.execute("SELECT MAX(seq) FROM scanner_page WHERE document_id=?", (doc_id,)).fetchone()
         m = row[0] if row and row[0] is not None else -1
         return m + 1
 
@@ -34,10 +34,10 @@ def create_project(base_dir: Path, title="Proyecto sin título"):
     with db_connect() as con:
         cur = con.cursor()
         # proyecto
-        cur.execute("INSERT INTO project (name, base_dir, created_at) VALUES (?,?,datetime('now'))", (proj_dir.name, str(proj_dir)))
+        cur.execute("INSERT INTO scanner_project (name, base_dir, created_at) VALUES (?,?,datetime('now'))", (proj_dir.name, str(proj_dir)))
         pid = cur.lastrowid
         # documento
-        cur.execute("INSERT INTO document (project_id, title, created_at) VALUES (?,?,datetime('now'))", (pid, title))
+        cur.execute("INSERT INTO scanner_document (project_id, title, created_at) VALUES (?,?,datetime('now'))", (pid, title))
         did = cur.lastrowid
         con.commit()
     return did, proj_dir
@@ -46,11 +46,11 @@ def open_existing_project(base_dir: Path):
     # Encuentra el último documento asociado a esa carpeta
     with db_connect() as con:
         cur = con.cursor()
-        row = cur.execute("SELECT id FROM project WHERE base_dir=?", (str(base_dir),)).fetchone()
+        row = cur.execute("SELECT id FROM scanner_project WHERE base_dir=?", (str(base_dir),)).fetchone()
         if not row:
             raise RuntimeError("No se encontró proyecto registrado para esa carpeta.")
         proj_id = row[0]
-        drow = cur.execute("SELECT id FROM document WHERE project_id=? ORDER BY id DESC LIMIT 1", (proj_id,)).fetchone()
+        drow = cur.execute("SELECT id FROM scanner_document WHERE project_id=? ORDER BY id DESC LIMIT 1", (proj_id,)).fetchone()
         if not drow:
             raise RuntimeError("Ese proyecto no tiene documento asociado.")
         did = drow[0]
@@ -199,7 +199,7 @@ class ScannerApp:
         cv2.imwrite(str(out_path), frame)
         # Inserta fila en DB
         with db_connect() as con:
-            con.execute("""INSERT INTO page (document_id, seq, src_path, processed_path, created_at, downloaded) VALUES (?,?,?,?,datetime('now'),1)""",
+            con.execute("""INSERT INTO scanner_page (document_id, seq, src_path, processed_path, created_at, downloaded) VALUES (?,?,?,?,datetime('now'),1)""",
                         (self.doc_id, seq, None, str(out_path)))
             con.commit()
         messagebox.showinfo("Captura", f"Guardada página #{seq:04d}: {out_path}")
@@ -452,7 +452,7 @@ def import_pages(self):
             except Exception:
                 shutil.copy2(p, dest)
             with db_connect() as con:
-                con.execute("INSERT INTO page (document_id, seq, processed_path, status, created_at, downloaded) VALUES (?,?,?,?,datetime('now'),1)", (self.doc_id, seq, str(dest), 'pending'))
+                con.execute("INSERT INTO scanner_page (document_id, seq, processed_path, status, created_at, downloaded) VALUES (?,?,?,?,datetime('now'),1)", (self.doc_id, seq, str(dest), 'pending'))
                 con.commit()
             count += 1
     messagebox.showinfo("Importación", f"Importadas {count} imágenes.")

@@ -1034,23 +1034,63 @@ document.getElementById('btnGlossImport').addEventListener('click', async ()=>{
 });
 
 // Export helpers (CSV/JSON/TEI)
-function exportGloss(fmt){
-  const idEl = document.getElementById('glossExportId');
-  const id = parseInt(idEl && idEl.value || '0');
+function exportGloss(id, fmt, name){
   if(!id){ alert('ID de glosario requerido'); return; }
-  const defName = `glosario_${id}.${fmt}`;
-  const out = prompt('Ruta de salida en el servidor:', `/tmp/${defName}`);
-  if(!out) return;
-  axios.post('/glossary_export', { id, format: fmt, out }).then(r=>{
-    alert(r.data && r.data.ok ? ('Exportado: '+r.data.file) : ('Error: '+(r.data.error||'')));
-  }).catch(()=> alert('Fallo en exportación'));
+  const safeName = (name || 'glosario').replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9_\-\s]/g, '_').replace(/\s+/g, '_');
+  const filename = `${safeName}.${fmt}`;
+  
+  // Obtener el glosario y descargarlo directamente
+  axios.get(`/glossaries`).then(async res => {
+    const glossaries = res.data.glossaries || [];
+    const glossary = glossaries.find(g => g.id === id);
+    if(!glossary) { alert('Glosario no encontrado'); return; }
+    
+    let terms = {};
+    try { terms = JSON.parse(glossary.terms_json || '{}'); } catch(e) { terms = {}; }
+    
+    let content, mimeType;
+    if(fmt === 'csv'){
+      // Generar CSV
+      let csv = 'Abreviatura,Expansión\n';
+      Object.entries(terms).forEach(([ab, ex]) => {
+        csv += '"' + ab.replace(/"/g, '""') + '","' + ex.replace(/"/g, '""') + '"\n';
+      });
+      content = csv;
+      mimeType = 'text/csv;charset=utf-8;';
+    } else if(fmt === 'json'){
+      // Generar JSON
+      content = JSON.stringify(terms, null, 2);
+      mimeType = 'application/json;charset=utf-8;';
+    } else if(fmt === 'tei'){
+      // Generar TEI XML básico
+      let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<list>\n';
+      Object.entries(terms).forEach(([ab, ex]) => {
+        const escAb = ab.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const escEx = ex.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        xml += `  <item>\n    <abbr>${escAb}</abbr>\n    <expan>${escEx}</expan>\n  </item>\n`;
+      });
+      xml += '</list>';
+      content = xml;
+      mimeType = 'application/xml;charset=utf-8;';
+    }
+    
+    // Descargar archivo
+    const blob = new Blob([content], {type: mimeType});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      document.body.removeChild(a);
+    }, 100);
+  }).catch(e => {
+    const msg = e.response?.data?.error || e.message || 'Error al exportar';
+    alert('Error al exportar: ' + msg);
+  });
 }
-const btnExpCSV = document.getElementById('btnGlossExportCSV');
-if(btnExpCSV) btnExpCSV.addEventListener('click', ()=> exportGloss('csv'));
-const btnExpJSON = document.getElementById('btnGlossExportJSON');
-if(btnExpJSON) btnExpJSON.addEventListener('click', ()=> exportGloss('json'));
-const btnExpTEI = document.getElementById('btnGlossExportTEI');
-if(btnExpTEI) btnExpTEI.addEventListener('click', ()=> exportGloss('tei'));
 
 // Import TEI glossary
 const btnImpTEI = document.getElementById('btnGlossImportTEI');
@@ -1110,6 +1150,9 @@ async function loadGlossaries(){
         <button class="btnCopyPage gloss-toolbar-btn" title="Copiar página visible">📋 Página</button>
         <button class="btnExportPage gloss-toolbar-btn" title="Exportar página visible CSV">⬇ Página</button>
         <button class="btnCopyAll gloss-toolbar-btn" title="Copiar todo JSON">📋 Todo</button>
+        <button class="btnExportCSV gloss-toolbar-btn" data-id="${g.id}" data-name="${g.name}" title="Exportar CSV">CSV↧</button>
+        <button class="btnExportJSON gloss-toolbar-btn" data-id="${g.id}" data-name="${g.name}" title="Exportar JSON">JSON↧</button>
+        <button class="btnExportTEI gloss-toolbar-btn" data-id="${g.id}" data-name="${g.name}" title="Exportar TEI">TEI↧</button>
       </div>
       <div class="gloss-pager" style="margin:4px 0;display:flex;gap:6px;align-items:center">
         <button class="btnPrev gloss-toolbar-btn" title="Anterior" disabled>◀</button>
@@ -1210,6 +1253,10 @@ async function loadGlossaries(){
       try { await axios.post('/glossaries/delete', { id: parseInt(b.dataset.id)}); } catch(e){ showError('eliminando glosario', e); }
       loadGlossariesIfNeeded(); // reload safely
     }));
+    // Export buttons for each glossary
+    host.querySelectorAll('.btnExportCSV').forEach(b=> b.addEventListener('click', ()=> exportGloss(parseInt(b.dataset.id), 'csv', b.dataset.name)));
+    host.querySelectorAll('.btnExportJSON').forEach(b=> b.addEventListener('click', ()=> exportGloss(parseInt(b.dataset.id), 'json', b.dataset.name)));
+    host.querySelectorAll('.btnExportTEI').forEach(b=> b.addEventListener('click', ()=> exportGloss(parseInt(b.dataset.id), 'tei', b.dataset.name)));
     host.querySelectorAll('.btnEdit').forEach(b=> b.addEventListener('click', async ()=>{
       try {
         const entry = b.closest('.gloss-entry');

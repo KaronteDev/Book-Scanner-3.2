@@ -6,7 +6,7 @@ from flask import Flask, send_from_directory, request, jsonify
 import requests
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB = BASE_DIR / "geodocs_scanner.db"
+DB = BASE_DIR / "data" / "geodocs.db"
 CONF = BASE_DIR / "geodocs_config.json"
 
 # Add parent directory to path for module imports
@@ -193,9 +193,9 @@ def ocr_text():
     seq = request.args.get("seq", type=int)
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
     if seq is not None:
-        r = con.execute("SELECT ocr_text FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+        r = con.execute("SELECT ocr_text FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
     else:
-        r = con.execute("SELECT ocr_text FROM page WHERE document_id=? ORDER BY seq LIMIT 1", (doc_id,)).fetchone()
+        r = con.execute("SELECT ocr_text FROM scanner_page WHERE document_id=? ORDER BY seq LIMIT 1", (doc_id,)).fetchone()
     con.close()
     txt = (r["ocr_text"] if r and r["ocr_text"] else "")
     if request.args.get('format')=='txt':
@@ -210,7 +210,7 @@ def ocr_text():
 def page_image():
     doc_id = int(request.args.get("document_id")); seq = int(request.args.get("seq"))
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT processed_path FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+    r = con.execute("SELECT processed_path FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
     con.close()
     if not r or not r["processed_path"] or not Path(r["processed_path"]).exists():
         return "Not found", 404
@@ -221,7 +221,7 @@ def page_image():
 def ocr_revisions():
     doc_id = int(request.args.get("document_id")); seq = int(request.args.get("seq"))
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    pr = con.execute("SELECT id FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+    pr = con.execute("SELECT id FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
     if not pr: 
         con.close(); 
         return jsonify({"revisions":[]})
@@ -238,7 +238,7 @@ def save_ocr_revision():
     ocr_html = data.get("ocr_html") or ""
     user = data.get("user") or "web-user"
     con = sqlite3.connect(DB); cur = con.cursor()
-    pr = cur.execute("SELECT id FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+    pr = cur.execute("SELECT id FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
     if not pr: 
         con.close(); 
         return jsonify({"ok": False, "error":"page not found"}), 404
@@ -247,7 +247,7 @@ def save_ocr_revision():
     cur.execute("INSERT INTO ocr_revision(page_id, version, user, ocr_text, ocr_html) VALUES (?,?,?,?,?)", (pid, rv, user, ocr_text, ocr_html))
     cur.execute("INSERT INTO audit_log(action, user, role, page_id, revision_id, details) VALUES (?,?,?,?,?,?)", ("save_revision", user, None, pid, cur.lastrowid, json.dumps({})))
     # also update current page
-    cur.execute("UPDATE page SET ocr_text=?, ocr_html=?, status='done' WHERE id=?", (ocr_text, ocr_html, pid))
+    cur.execute("UPDATE scanner_page SET ocr_text=?, ocr_html=?, status='done' WHERE id=?", (ocr_text, ocr_html, pid))
     con.commit(); con.close()
     return jsonify({"ok": True, "version": rv})
 
@@ -270,7 +270,7 @@ def restore_ocr_revision():
     if not r:
         con.close(); return jsonify({"ok": False, "error":"revision not found"}), 404
     page_id, txt, html = r
-    cur.execute("UPDATE page SET ocr_text=?, ocr_html=?, status='done' WHERE id=?", (txt, html, page_id))
+    cur.execute("UPDATE scanner_page SET ocr_text=?, ocr_html=?, status='done' WHERE id=?", (txt, html, page_id))
     con.commit(); con.close()
     return jsonify({"ok": True})
 
@@ -332,7 +332,7 @@ def apply_partial_restore():
     indices = data.get("indices") or []  # list of paragraph indices to apply
     # Fetch target revision body and current page
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    pr = con.execute("SELECT id, ocr_text, ocr_html FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+    pr = con.execute("SELECT id, ocr_text, ocr_html FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
     rr = con.execute("SELECT ocr_text, ocr_html FROM ocr_revision WHERE id=?", (rid,)).fetchone()
     if not pr or not rr:
         con.close()
@@ -360,9 +360,9 @@ def apply_partial_restore():
         if 0 <= i < L:
             base_parts[i] = rev_parts[i]
     merged_html = "".join([f"<p>{p}</p>" for p in base_parts])
-    # Save as new revision and update page
+    # Save as new revision and UPDATE scanner_page
     cur = con.cursor()
-    cur.execute("UPDATE page SET ocr_html=?, ocr_text=?, status='done' WHERE id=?", (re.sub(r"<[^>]+>", "", merged_html), merged_html, page_id))
+    cur.execute("UPDATE scanner_page SET ocr_html=?, ocr_text=?, status='done' WHERE id=?", (re.sub(r"<[^>]+>", "", merged_html), merged_html, page_id))
     rv = cur.execute("SELECT IFNULL(MAX(version),0)+1 FROM ocr_revision WHERE page_id=?", (page_id,)).fetchone()[0]
     cur.execute("INSERT INTO ocr_revision(page_id, version, user, ocr_text, ocr_html, changes_html) VALUES (?,?,?,?,?,?)",
                 (page_id, rv, "web-editor", re.sub(r"<[^>]+>", "", merged_html), merged_html, None))
@@ -380,11 +380,11 @@ def apply_partial_restore_chars():
     user = (data.get("user") or "web-editor").strip()
     role = (data.get("role") or "investigador").strip()
     con = sqlite3.connect(DB); cur = con.cursor()
-    pr = cur.execute("SELECT id FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+    pr = cur.execute("SELECT id FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
     if not pr:
         con.close(); return jsonify({"ok": False, "error":"page not found"}), 404
     pid = pr[0]
-    cur.execute("UPDATE page SET ocr_text=?, ocr_html=?, status='done' WHERE id=?", (final_text, final_html or final_text, pid))
+    cur.execute("UPDATE scanner_page SET ocr_text=?, ocr_html=?, status='done' WHERE id=?", (final_text, final_html or final_text, pid))
     rv = cur.execute("SELECT IFNULL(MAX(version),0)+1 FROM ocr_revision WHERE page_id=?", (pid,)).fetchone()[0]
     cur.execute("INSERT INTO ocr_revision(page_id, version, user, ocr_text, ocr_html) VALUES (?,?,?,?,?)",
                 (pid, rv, user, final_text, final_html or final_text))
@@ -425,7 +425,7 @@ def check_similarity():
     text_corr = (data.get("text") or "").strip()
     import difflib, sqlite3
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    baser = con.execute("SELECT ocr_text FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+    baser = con.execute("SELECT ocr_text FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
     base = (baser["ocr_text"] if baser and baser["ocr_text"] else "").strip()
     score = difflib.SequenceMatcher(None, base, text_corr).ratio() if (base and text_corr) else 0.0
     con.close()
@@ -455,16 +455,16 @@ def change_state():
     con = sqlite3.connect(DB); cur = con.cursor()
     if level == "page":
         doc_id = int(data.get("document_id")); seq = int(data.get("seq"))
-        pr = cur.execute("SELECT id FROM page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
+        pr = cur.execute("SELECT id FROM scanner_page WHERE document_id=? AND seq=?", (doc_id, seq)).fetchone()
         if not pr: con.close(); return jsonify({"ok": False, "error": "page not found"}), 404
         pid = pr[0]
-        cur.execute("UPDATE page SET review_state=? WHERE id=?", (state, pid))
+        cur.execute("UPDATE scanner_page SET review_state=? WHERE id=?", (state, pid))
         cur.execute("INSERT INTO audit_log(action, user, role, page_id, details) VALUES (?,?,?,?,?)", ("change_state_page", role_info.get("user"), role, pid, json.dumps({"state":state})))
     else:
         doc_id = int(data.get("document_id"))
-        dr = cur.execute("SELECT id FROM document WHERE id=?", (doc_id,)).fetchone()
+        dr = cur.execute("SELECT id FROM scanner_document WHERE id=?", (doc_id,)).fetchone()
         if not dr: con.close(); return jsonify({"ok": False, "error": "document not found"}), 404
-        cur.execute("UPDATE document SET workflow_state=? WHERE id=?", (state, doc_id))
+        cur.execute("UPDATE scanner_document SET workflow_state=? WHERE id=?", (state, doc_id))
         cur.execute("INSERT INTO audit_log(action, user, role, details) VALUES (?,?,?,?)", ("change_state_document", role_info.get("user"), role, json.dumps({"doc_id":doc_id,"state":state})))
     con.commit(); con.close()
     return jsonify({"ok": True, "state": state})
@@ -474,7 +474,7 @@ def change_state():
 def ocr_quality_dashboard():
     doc_id = request.args.get("document_id", type=int)
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    pages = list(con.execute("SELECT id, document_id, seq, review_state, ocr_text FROM page " + ("WHERE document_id=?" if doc_id else ""), ([doc_id] if doc_id else [])))
+    pages = list(con.execute("SELECT id, document_id, seq, review_state, ocr_text FROM scanner_page " + ("WHERE document_id=?" if doc_id else ""), ([doc_id] if doc_id else [])))
     revs = list(con.execute("SELECT page_id, MAX(version) AS v, MAX(similarity_score) AS sc FROM ocr_revision GROUP BY page_id"))
     sc_by_page = {r["page_id"]: (r["sc"] or 0.0) for r in revs}
     rows = []
@@ -505,7 +505,7 @@ def publish_to_geodocs():
         return jsonify({"ok": False, "error": str(ex)}), 500
     # mark local
     con = sqlite3.connect(DB); cur = con.cursor()
-    cur.execute("UPDATE document SET workflow_state='publicado' WHERE id=?", (doc_id,))
+    cur.execute("UPDATE scanner_document SET workflow_state='publicado' WHERE id=?", (doc_id,))
     cur.execute("INSERT INTO audit_log(action, user, role, details) VALUES (?,?,?,?)", ("publish_document", signed_by, None, json.dumps({"doc_id":doc_id,"ocr_quality":quality})))
     con.commit(); con.close()
     return jsonify({"ok": True})
@@ -544,7 +544,7 @@ def get_calibration():
     # also attach document row if possible
     import sqlite3
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT id, dpi_x, dpi_y, calibrated_size, calibration_date FROM document ORDER BY id DESC LIMIT 1").fetchone()
+    r = con.execute("SELECT id, dpi_x, dpi_y, calibrated_size, calibration_date FROM scanner_document ORDER BY id DESC LIMIT 1").fetchone()
     con.close()
     if r:
         data.setdefault("dpi_x", r["dpi_x"]); data.setdefault("dpi_y", r["dpi_y"])
@@ -573,7 +573,7 @@ def tts_endpoint():
     voice = data.get("voice","es")
     # fetch text from DB
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT id, ocr_text, ocr_html FROM page WHERE id=?", (page_id,)).fetchone()
+    r = con.execute("SELECT id, ocr_text, ocr_html FROM scanner_page WHERE id=?", (page_id,)).fetchone()
     con.close()
     if not r: return jsonify({"ok": False, "error":"page not found"}), 404
     text = (r["ocr_html"] or "") if corrected else (r["ocr_text"] or "")
@@ -593,7 +593,7 @@ def spellcheck_endpoint():
     data = request.get_json(force=True) or {}
     page_id = data.get("page_id")
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT id, ocr_html FROM page WHERE id=?", (page_id,)).fetchone()
+    r = con.execute("SELECT id, ocr_html FROM scanner_page WHERE id=?", (page_id,)).fetchone()
     con.close()
     if not r: return jsonify({"ok": False, "error":"page not found"}), 404
     import re
@@ -613,7 +613,7 @@ def xmp_sidecar_endpoint():
     data = request.get_json(force=True) or {}
     page_id = data.get("page_id")
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT p.id, p.document_id, p.avg_confidence, p.visual_score, p.homography_matrix, p.processed_path, d.dpi_x, d.dpi_y, d.calibrated_size FROM page p JOIN document d ON p.document_id=d.id WHERE p.id=?", (page_id,)).fetchone()
+    r = con.execute("SELECT p.id, p.document_id, p.avg_confidence, p.visual_score, p.homography_matrix, p.processed_path, d.dpi_x, d.dpi_y, d.calibrated_size FROM scanner_page p JOIN scanner_document d ON p.document_id=d.id WHERE p.id=?", (page_id,)).fetchone()
     con.close()
     if not r: return jsonify({"ok": False, "error":"page not found"}), 404
     meta = {
@@ -640,7 +640,7 @@ def page_text():
     pid = int(request.args.get("page_id"))
     corrected = request.args.get("corrected","true").lower() in ("1","true","yes","y")
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT ocr_text, ocr_html FROM page WHERE id=?", (pid,)).fetchone()
+    r = con.execute("SELECT ocr_text, ocr_html FROM scanner_page WHERE id=?", (pid,)).fetchone()
     con.close()
     if not r: return jsonify({"ok": False, "error":"page not found"}), 404
     if corrected:
@@ -654,7 +654,7 @@ def save_corrected():
     pid = int(data.get("page_id"))
     html = data.get("html") or ""
     con = sqlite3.connect(DB)
-    con.execute("UPDATE page SET ocr_html=? WHERE id=?", (html, pid))
+    con.execute("UPDATE scanner_page SET ocr_html=? WHERE id=?", (html, pid))
     con.commit(); con.close()
     return jsonify({"ok": True})
 
@@ -670,7 +670,7 @@ def tts_stream():
     voice = request.args.get("voice","es")
     # fetch text
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT id, ocr_text, ocr_html FROM page WHERE id=?", (page_id,)).fetchone()
+    r = con.execute("SELECT id, ocr_text, ocr_html FROM scanner_page WHERE id=?", (page_id,)).fetchone()
     con.close()
     if not r: return jsonify({"ok": False, "error":"page not found"}), 404
     text = (r["ocr_html"] or "") if corrected else (r["ocr_text"] or "")
@@ -726,7 +726,7 @@ def audiobook():
     rate = data.get("rate"); volume = data.get("volume"); lang = data.get("lang","es")
     seq_from = int(data.get("seq_from", 1)); seq_to = int(data.get("seq_to", 10**9))
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    rows = con.execute("SELECT seq, ocr_text, ocr_html FROM page WHERE document_id=? AND seq BETWEEN ? AND ? ORDER BY seq", (doc_id, seq_from, seq_to)).fetchall()
+    rows = con.execute("SELECT seq, ocr_text, ocr_html FROM scanner_page WHERE document_id=? AND seq BETWEEN ? AND ? ORDER BY seq", (doc_id, seq_from, seq_to)).fetchall()
     con.close()
     import re
     texts = []
@@ -825,22 +825,33 @@ def glossaries_import_inline():
 
 @app.post("/glossary_export")
 def glossary_export():
-    data = request.get_json(force=True) or {}
-    gid = int(data.get("id"))
-    fmt = data.get("format","csv")
-    out = data.get("out")
-    if not out: return jsonify({"ok":False,"error":"out requerido"}),400
-    import json as _j, sqlite3
-    con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT terms_json FROM glossary WHERE id=?", (gid,)).fetchone(); con.close()
-    if not r: return jsonify({"ok":False,"error":"glosario no encontrado"}),404
-    terms = _j.loads(r["terms_json"] or "{}")
-    from modules.glossary_io import export_csv, export_json, export_tei
-    if fmt=='csv': path = export_csv(terms, out)
-    elif fmt=='json': path = export_json(terms, out)
-    elif fmt in ('tei','xml'): path = export_tei(terms, out)
-    else: return jsonify({"ok":False,"error":"formato no soportado"}),400
-    return jsonify({"ok":True,"file": path})
+    try:
+        data = request.get_json(force=True) or {}
+        gid = int(data.get("id"))
+        fmt = data.get("format","csv")
+        out = data.get("out")
+        if not out: return jsonify({"ok":False,"error":"out requerido"}),400
+        
+        # Crear directorio si no existe
+        from pathlib import Path
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        import json as _j, sqlite3
+        con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
+        r = con.execute("SELECT terms_json FROM glossary WHERE id=?", (gid,)).fetchone(); con.close()
+        if not r: return jsonify({"ok":False,"error":"glosario no encontrado"}),404
+        terms = _j.loads(r["terms_json"] or "{}")
+        from modules.glossary_io import export_csv, export_json, export_tei
+        if fmt=='csv': path = export_csv(terms, str(out_path))
+        elif fmt=='json': path = export_json(terms, str(out_path))
+        elif fmt in ('tei','xml'): path = export_tei(terms, str(out_path))
+        else: return jsonify({"ok":False,"error":"formato no soportado"}),400
+        return jsonify({"ok":True,"file": path})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok":False,"error":str(e)}),500
 
 
 CURRENT_ABBREV_STYLE = "Chicago"
@@ -981,7 +992,7 @@ def apply_style_doc():
 def diff_page():
     page_id = int(request.args.get("page_id"))
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT ocr_text, ocr_html, stylized_html FROM page WHERE id=?", (page_id,)).fetchone()
+    r = con.execute("SELECT ocr_text, ocr_html, stylized_html FROM scanner_page WHERE id=?", (page_id,)).fetchone()
     con.close()
     if not r:
         return jsonify({"ok": False, "error": "page not found"}), 404
@@ -1002,14 +1013,14 @@ def review_apply():
     decision = data.get("decision")  # 'accept'|'reject'|'revert'
     # naive: if accept -> copy stylized_html to ocr_html; if reject -> keep; if revert -> set to ocr_text
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
-    r = con.execute("SELECT ocr_text, ocr_html, stylized_html FROM page WHERE id=?", (page_id,)).fetchone()
+    r = con.execute("SELECT ocr_text, ocr_html, stylized_html FROM scanner_page WHERE id=?", (page_id,)).fetchone()
     if not r:
         con.close(); return jsonify({"ok": False, "error": "page not found"}), 404
     if decision == "accept":
-        con.execute("UPDATE page SET ocr_html=? WHERE id=?", (r["stylized_html"] or r["ocr_html"], page_id))
+        con.execute("UPDATE scanner_page SET ocr_html=? WHERE id=?", (r["stylized_html"] or r["ocr_html"], page_id))
     elif decision == "revert":
         # wrap original as simple <p>
-        con.execute("UPDATE page SET ocr_html=? WHERE id=?", ("<p>"+(r["ocr_text"] or "")+"</p>", page_id))
+        con.execute("UPDATE scanner_page SET ocr_html=? WHERE id=?", ("<p>"+(r["ocr_text"] or "")+"</p>", page_id))
     # else reject -> no change
     con.commit(); con.close()
     return jsonify({"ok": True})

@@ -9,7 +9,7 @@ import json, sqlite3, time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-DB = BASE_DIR / "geodocs_scanner.db"
+DB = BASE_DIR / "data" / "geodocs.db"
 OCR_CONF = BASE_DIR / "ocr_config.json"
 
 def db():
@@ -41,16 +41,16 @@ def run_once(limit=10):
     conf = load_conf()
     with db() as con:
         cur = con.cursor()
-        rows = list(cur.execute("SELECT id, processed_path FROM page WHERE IFNULL(status,'pending')!='done' ORDER BY id LIMIT ?", (limit,)))
+        rows = list(cur.execute("SELECT id, processed_path FROM scanner_page WHERE IFNULL(status,'pending')!='done' ORDER BY id LIMIT ?", (limit,)))
         for r in rows:
             pid, _ = r
-            cur.execute("UPDATE page SET status='processing' WHERE id=?", (pid,))
+            cur.execute("UPDATE scanner_page SET status='processing' WHERE id=?", (pid,))
             con.commit()
             text = do_ocr_for_page(r, conf)
             if text is not None:
-                cur.execute("UPDATE page SET ocr_text=?, status='done' WHERE id=?", (text, pid))
+                cur.execute("UPDATE scanner_page SET ocr_text=?, status='done' WHERE id=?", (text, pid))
             else:
-                cur.execute("UPDATE page SET status='error' WHERE id=?", (pid,))
+                cur.execute("UPDATE scanner_page SET status='error' WHERE id=?", (pid,))
             con.commit()
 
 if __name__ == "__main__":
