@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list>
+  <item><abbr>Aleta</abbr><expan>Parte lateral y posterior del casco cercana a la popa</expan></item>
+  <item><abbr>Amura</abbr><expan>Zona de la parte delantera del barco donde el costado se curva hacia la proa</expan></item>
+  <item><abbr>Baluma</abbr><expan>Borde de popa de una vela (luff=grátil / foot=pujamen / leech=baluma)</expan></item>
+  <item><abbr>Babor</abbr><expan>Lado izquierdo de la embarcación mirando hacia la proa</expan></item>
+  <item><abbr>Bitas</abbr><expan>Piezas fijas para amarrar cabos en cubierta</expan></item>
+  <item><abbr>Bodega</abbr><expan>Espacio interior destinado a carga o pertrechos</expan></item>
+  <item><abbr>Boyarín</abbr><expan>Flotador pequeño de señalización unido por cabo</expan></item>
+  <item><abbr>Calado</abbr><expan>Distancia vertical entre la línea de flotación y la quilla</expan></item>
+  <item><abbr>Capear</abbr><expan>Maniobrar el barco para aguantar temporal de proa</expan></item>
+  <item><abbr>Carbonera</abbr><expan>Espacio donde se almacena carbón (buques antiguos)</expan></item>
+  <item><abbr>Cofa</abbr><expan>Plataforma elevada en el palo usada de vigía</expan></item>
+  <item><abbr>Compás</abbr><expan>Instrumento de orientación magnética para rumbo</expan></item>
+  <item><abbr>Costado</abbr><expan>Lado del casco de la embarcación</expan></item>
+  <item><abbr>Dragado</abbr><expan>Acción de arrastrar ancla o aparejo por el fondo</expan></item>
+  <item><abbr>Escora</abbr><expan>Inclinación transversal del barco respecto a su plano vertical</expan></item>
+  <item><abbr>Estay</abbr><expan>Cabo o cable que sujeta el palo longitudinalmente (proa-pop)</expan></item>
+  <item><abbr>Fondear</abbr><expan>Echar el ancla para mantener el barco en posición</expan></item>
+  <item><abbr>Grátil</abbr><expan>Borde de ataque de la vela que va junto al palo o estay</expan></item>
+  <item><abbr>Guardamancebos</abbr><expan>Cables con candeleros que forman defensa perimetral</expan></item>
+  <item><abbr>Jarcia</abbr><expan>Conjunto de cabos y cables de maniobra y sujeción de los palos</expan></item>
+  <item><abbr>Jarcia firme</abbr><expan>Cables fijos (obenques estayes) que soportan los palos</expan></item>
+  <item><abbr>Jarcia de labor</abbr><expan>Cabos móviles para ajustar velas (a las escotas)</expan></item>
+  <item><abbr>Lazo</abbr><expan>Cabo formado en vuelta cerrado sobre sí mismo</expan></item>
+  <item><abbr>Mamporro</abbr><expan>Golpe fuerte de mar contra la estructura</expan></item>
+  <item><abbr>Mascarón</abbr><expan>Figura tallada decorativa en la proa tradicional</expan></item>
+  <item><abbr>Mayor</abbr><expan>Vela principal del palo mayor</expan></item>
+  <item><abbr>Obenque</abbr><expan>Cable lateral que sujeta el palo verticalmente</expan></item>
+  <item><abbr>Orzar</abbr><expan>Girar la proa hacia el viento para ceñir</expan></item>
+  <item><abbr>Pairo</abbr><expan>Detener la arrancada manteniendo rumbo y gobierno</expan></item>
+  <item><abbr>Pantoque</abbr><expan>Curva inferior entre la quilla y los costados del casco</expan></item>
+  <item><abbr>Pico</abbr><expan>Extremo superior posterior de la vela cangreja</expan></item>
+  <item><abbr>Popa</abbr><expan>Parte trasera del barco</expan></item>
+  <item><abbr>Proa</abbr><expan>Parte delantera del barco</expan></item>
+  <item><abbr>Pujamen</abbr><expan>Borde inferior de una vela</expan></item>
+  <item><abbr>Rumbo</abbr><expan>Dirección en grados respecto al norte (curso)</expan></item>
+  <item><abbr>Sentina</abbr><expan>Zona más baja del interior donde se acumulan aguas</expan></item>
+  <item><abbr>Timonel</abbr><expan>Persona que gobierna el timón</expan></item>
+  <item><abbr>Trinca</abbr><expan>Amarre fuerte para asegurar carga o pertrechos</expan></item>
+  <item><abbr>Viento aparente</abbr><expan>Viento resultante de la combinación del verdadero y el generado por el movimiento</expan></item>
+  <item><abbr>Viento verdadero</abbr><expan>Dirección y fuerza reales del viento independientemente del movimiento del barco</expan></item>
+  <item><abbr>Virar</abbr><expan>Cambiar de rumbo (virar por avante o en redondo)</expan></item>
+  <item><abbr>Zafa</abbr><expan>Acción de liberar un cabo o amarre</expan></item>
+  <item><abbr>Eslinga</abbr><expan>Cabo o cinta de izado para carga</expan></item>
+  <item><abbr>Escota</abbr><expan>Cabo que controla el ángulo de la vela respecto al viento</expan></item>
+  <item><abbr>Halar</abbr><expan>Tirar de un cabo para tensarlo</expan></item>
+  <item><abbr>Abarloar</abbr><expan>Amarrar un buque al costado de otro o a muelle</expan></item>
+  <item><abbr>Bita</abbr><expan>Doble poste corto en cubierta para amarre (singular de bitas)</expan></item>
+  <item><abbr>Grillete</abbr><expan>Pieza metálica en U con perno para unir elementos</expan></item>
+  <item><abbr>Imbornal</abbr><expan>Orificio en la regala para evacuar agua de cubierta</expan></item>
+  <item><abbr>Línea de flotación</abbr><expan>Línea que separa la parte sumergida de la emergida</expan></item>
+  <item><abbr>Quilla</abbr><expan>Estructura longitudinal inferior que da estabilidad y forma</expan></item>
+  <item><abbr>Tambucho</abbr><expan>Abertura en cubierta para acceso a interior</expan></item>
+  <item><abbr>Torno</abbr><expan>Cabrestante pequeño para maniobra de cabos</expan></item>
+  <item><abbr>Vigía</abbr><expan>Persona que observa desde altura para detectar obstáculos</expan></item>
+</list>

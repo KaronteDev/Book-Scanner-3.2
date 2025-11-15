@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os, json, sqlite3
+import os, json, sqlite3, sys
 from pathlib import Path
 from flask import Flask, send_from_directory, request, jsonify
 import requests
@@ -9,9 +9,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DB = BASE_DIR / "geodocs_scanner.db"
 CONF = BASE_DIR / "geodocs_config.json"
 
+# Add parent directory to path for module imports
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 app = Flask(__name__, static_folder=str(BASE_DIR / "web_viewer"))
 
 def cfg():
+    if not CONF.exists():
+        return {}
     return json.loads(CONF.read_text(encoding="utf-8"))
 
 def headers():
@@ -29,26 +35,42 @@ def home():
 def static_files(p):
     return send_from_directory(app.static_folder, p)
 
+@app.route("/css/<path:p>")
+def css_files(p):
+    return send_from_directory(os.path.join(app.static_folder, "css"), p)
+
+@app.route("/js/<path:p>")
+def js_files(p):
+    return send_from_directory(os.path.join(app.static_folder, "js"), p)
+
+@app.route("/assets/<path:p>")
+def assets_files(p):
+    return send_from_directory(os.path.join(app.static_folder, "assets"), p)
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype='image/x-icon')
+
+
 @app.get("/annotations")
 def annotations():
     doc_id = request.args.get("document_id", type=int)
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
     
-q = request.args.get("q","").strip()
-tags = request.args.get("tags","").strip()
-typ = request.args.get("type","").strip()
-dfrom = request.args.get("from","").strip()
-dto = request.args.get("to","").strip()
-sql = "SELECT * FROM annotation WHERE document_id=?"
-args = [doc_id]
-if q: sql += " AND body LIKE ?"; args.append(f"%{q}%")
-if tags: sql += " AND IFNULL(tags,'') LIKE ?"; args.append(f"%{tags}%")
-if typ: sql += " AND type=?"; args.append(typ)
-if dfrom: sql += " AND IFNULL(created_at,'') >= ?"; args.append(dfrom)
-if dto: sql += " AND IFNULL(created_at,'') <= ?"; args.append(dto)
-sql += " ORDER BY id DESC"
-rows = list(con.execute(sql, args))
-
+    q = request.args.get("q","").strip()
+    tags = request.args.get("tags","").strip()
+    typ = request.args.get("type","").strip()
+    dfrom = request.args.get("from","").strip()
+    dto = request.args.get("to","").strip()
+    sql = "SELECT * FROM annotation WHERE document_id=?"
+    args = [doc_id]
+    if q: sql += " AND body LIKE ?"; args.append(f"%{q}%")
+    if tags: sql += " AND IFNULL(tags,'') LIKE ?"; args.append(f"%{tags}%")
+    if typ: sql += " AND type=?"; args.append(typ)
+    if dfrom: sql += " AND IFNULL(created_at,'') >= ?"; args.append(dfrom)
+    if dto: sql += " AND IFNULL(created_at,'') <= ?"; args.append(dto)
+    sql += " ORDER BY id DESC"
+    rows = list(con.execute(sql, args))
     con.close()
     return jsonify({"annotations":[dict(r) for r in rows]})
 
@@ -67,9 +89,6 @@ def sync_annotations():
     r = requests.post(ep, headers=headers(), json=payload, timeout=int(c.get("timeout_sec",20)), verify=bool(c.get("verify_tls",True)))
     r.raise_for_status()
     return jsonify({"status":"ok","pushed":len(rows)})
-
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
 
 @app.get("/pick")
 def pick():
@@ -123,7 +142,9 @@ def pull_annotations():
 
 @app.get("/prosopo")
 def prosopo():
-    doc_id = int(request.args.get("document_id"))
+    doc_id = request.args.get("document_id", type=int)
+    if not doc_id:
+        return jsonify({"persons": [], "places": []})
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
     persons = list(con.execute("SELECT persona_id, COUNT(*) c FROM annotation WHERE document_id=? AND persona_id IS NOT NULL GROUP BY persona_id ORDER BY c DESC", (doc_id,)))
     places = list(con.execute("SELECT toponimo_id, COUNT(*) c FROM annotation WHERE document_id=? AND toponimo_id IS NOT NULL GROUP BY toponimo_id ORDER BY c DESC", (doc_id,)))
@@ -136,7 +157,9 @@ def prosopo():
 
 @app.get("/graph")
 def graph():
-    doc_id = int(request.args.get("document_id"))
+    doc_id = request.args.get("document_id", type=int)
+    if not doc_id:
+        return jsonify({"nodes": [], "edges": []})
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
     rows = list(con.execute("SELECT page_id, persona_id, toponimo_id FROM annotation WHERE document_id=?", (doc_id,)))
     con.close()
@@ -575,12 +598,15 @@ def spellcheck_endpoint():
     if not r: return jsonify({"ok": False, "error":"page not found"}), 404
     import re
     text = re.sub("<[^<]+?>", " ", r["ocr_html"] or "")
-    from modules.spellcheck import check_text
-    from modules.glossary_manager import get_terms, apply_abbreviation_hints
-    res = check_text(text, "es")
-    terms = get_terms(DB, 'es')
-    hints = apply_abbreviation_hints(text, terms)
-    return jsonify({"ok": True, "tool": res["tool"], "issues": res["issues"], "abbrev_hints": hints})
+    try:
+        from modules.spellcheck import check_text
+        from modules.glossary_manager import get_terms, apply_abbreviation_hints
+        res = check_text(text, "es")
+        terms = get_terms(DB, 'es')
+        hints = apply_abbreviation_hints(text, terms)
+        return jsonify({"ok": True, "tool": res["tool"], "issues": res["issues"], "abbrev_hints": hints})
+    except (ImportError, ModuleNotFoundError):
+        return jsonify({"ok": True, "tool": "none", "issues": [], "abbrev_hints": []})
 
 @app.post("/xmp_sidecar")
 def xmp_sidecar_endpoint():
@@ -598,11 +624,13 @@ def xmp_sidecar_endpoint():
         "homography_matrix": r["homography_matrix"] or "",
         "avg_confidence": r["avg_confidence"], "visual_score": r["visual_score"]
     }
-    from modules.xmp_embed import write_xmp
-    img = r["processed_path"]
     try:
+        from modules.xmp_embed import write_xmp
+        img = r["processed_path"]
         path = write_xmp(img, meta)
         return jsonify({"ok": True, "file": path})
+    except (ImportError, ModuleNotFoundError):
+        return jsonify({"ok": False, "error": "XMP module not available"})
     except Exception as ex:
         return jsonify({"ok": False, "error": str(ex)}), 500
 
@@ -682,8 +710,11 @@ def spell_suggest():
 
 @app.get("/tts_voices")
 def tts_voices():
-    from modules.tts import list_voices
-    return jsonify(list_voices())
+    try:
+        from modules.tts import list_voices
+        return jsonify(list_voices())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "voices": []})
 
 
 @app.post("/audiobook")
@@ -711,29 +742,41 @@ def audiobook():
 
 @app.get("/glossaries")
 def glossaries_list():
-    from modules.glossary_manager import list_glossaries
-    return jsonify(glossaries=list_glossaries(DB))
+    try:
+        from modules.glossary_manager import list_glossaries
+        return jsonify(glossaries=list_glossaries(DB))
+    except (ImportError, ModuleNotFoundError):
+        return jsonify(glossaries=[])
 
 @app.post("/glossaries")
 def glossaries_create():
     data = request.get_json(force=True) or {}
-    from modules.glossary_manager import create_glossary
-    ok = create_glossary(DB, data.get("scope","project"), data.get("name","Nuevo glosario"), data.get("language","es"), data.get("terms",{}))
-    return jsonify({"ok": ok})
+    try:
+        from modules.glossary_manager import create_glossary
+        ok = create_glossary(DB, data.get("scope","project"), data.get("name","Nuevo glosario"), data.get("language","es"), data.get("terms",{}))
+        return jsonify({"ok": ok})
+    except (ImportError, ModuleNotFoundError) as e:
+        return jsonify({"ok": False, "error": "Module not available"})
 
 @app.post("/glossaries/update")
 def glossaries_update():
     data = request.get_json(force=True) or {}
-    from modules.glossary_manager import update_glossary
-    ok = update_glossary(DB, int(data.get("id")), data.get("terms"), data.get("name"))
-    return jsonify({"ok": ok})
+    try:
+        from modules.glossary_manager import update_glossary
+        ok = update_glossary(DB, int(data.get("id")), data.get("terms"), data.get("name"))
+        return jsonify({"ok": ok})
+    except (ImportError, ModuleNotFoundError):
+        return jsonify({"ok": False, "error": "Module not available"})
 
 @app.post("/glossaries/delete")
 def glossaries_delete():
     data = request.get_json(force=True) or {}
-    from modules.glossary_manager import delete_glossary
-    ok = delete_glossary(DB, int(data.get("id")))
-    return jsonify({"ok": ok})
+    try:
+        from modules.glossary_manager import delete_glossary
+        ok = delete_glossary(DB, int(data.get("id")))
+        return jsonify({"ok": ok})
+    except (ImportError, ModuleNotFoundError):
+        return jsonify({"ok": False, "error": "Module not available"})
 
 
 @app.post("/glossary_import")
@@ -754,6 +797,30 @@ def glossary_import():
     from modules.glossary_manager import create_glossary
     ok = create_glossary(DB, scope, name, "es", terms)
     return jsonify({"ok": ok, "terms": len(terms)})
+
+@app.post("/glossaries/import_inline")
+def glossaries_import_inline():
+    """Importa glosario enviado inline (JSON con terms dict) sin necesidad de fichero en disco.
+    body: {scope, name, language, terms:{abbr:expansion,...}}"""
+    data = request.get_json(force=True) or {}
+    scope = data.get("scope","project")
+    name = data.get("name","Glosario inline")
+    lang = data.get("language","es")
+    terms = data.get("terms") or {}
+    if not isinstance(terms, dict):
+        return jsonify({"ok": False, "error": "terms debe ser dict"}), 400
+    try:
+        from modules.glossary_manager import create_glossary
+        ok = create_glossary(DB, scope, name, lang, terms)
+        return jsonify({"ok": ok, "created": len(terms)})
+    except (ImportError, ModuleNotFoundError):
+        # Insertar directamente si falta el módulo
+        import json as _j, sqlite3
+        con = sqlite3.connect(DB)
+        con.execute("INSERT INTO glossary(scope,name,language,terms_json,updated_at) VALUES (?,?,?,?,datetime('now'))",
+                    (scope, name, lang, _j.dumps(terms, ensure_ascii=False)))
+        con.commit(); con.close()
+        return jsonify({"ok": True, "created": len(terms), "fallback": True})
 
 
 @app.post("/glossary_export")
@@ -829,6 +896,19 @@ def glossary_merge():
 @app.get("/style_templates")
 def style_templates_list():
     con = sqlite3.connect(DB); con.row_factory=sqlite3.Row
+    # Asegurar tabla
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS style_template (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT,
+        name TEXT,
+        language TEXT,
+        style_name TEXT,
+        rules_json TEXT,
+        meta_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME
+    )""")
     rows = con.execute("SELECT * FROM style_template ORDER BY updated_at DESC, created_at DESC").fetchall()
     con.close()
     return jsonify(templates=[dict(r) for r in rows])
@@ -837,6 +917,19 @@ def style_templates_list():
 def style_templates_create():
     data = request.get_json(force=True) or {}
     con = sqlite3.connect(DB)
+    # Asegurar tabla antes de insertar
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS style_template (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT,
+        name TEXT,
+        language TEXT,
+        style_name TEXT,
+        rules_json TEXT,
+        meta_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME
+    )""")
     con.execute("INSERT INTO style_template(scope,name,language,style_name,rules_json,meta_json,updated_at) VALUES (?,?,?,?,?,?,datetime('now'))",
                 (data.get("scope","project"), data.get("name","Plantilla"), data.get("language","es"), data.get("style_name","Chicago 17"),
                  json.dumps(data.get("rules") or {}, ensure_ascii=False), json.dumps(data.get("meta") or {}, ensure_ascii=False)))
@@ -1059,3 +1152,6 @@ def export_publish():
     except Exception as ex:
         ok = False; msg = str(ex)
     return jsonify({"ok": ok, "bundle": bundle_path, "result": res, "msg": msg, "endpoint": endpoint})
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=False)

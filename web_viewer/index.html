@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="https://js.arcgis.com/calcite-components/2.12.0/calcite.css">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/css/style.css">
   <script type="module" src="https://js.arcgis.com/calcite-components/2.12.0/calcite.esm.js"></script>
   <script nomodule src="https://js.arcgis.com/calcite-components/2.12.0/calcite.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -161,62 +161,231 @@
       <main id="map"></main>
     </div>
   </calcite-shell>
-  <script src="/static/js/app.js"></script>
+  <div id="panel-wysiwyg" style="position:fixed;right:10px;bottom:10px;width:420px;height:260px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:9999;overflow:auto">
+   <div class="panel-header">
+     <strong>Editor OCR corregido</strong>
+     <button id="btnWysSpell" class="gloss-toolbar-btn" title="Revisar ortografía">F7</button>
+     <button id="btnWysSave" class="gloss-toolbar-btn" title="Guardar (Ctrl+S)">💾</button>
+     <button id="btnWysClose" class="panel-close" aria-label="Cerrar" title="Cerrar">✕</button>
+   </div>
+   <div style="padding:8px">
+     <div id="wysArea" contenteditable="true" style="width:100%;height:170px;overflow:auto;border:1px solid #ddd;padding:6px"></div>
+   </div>
+  </div>
+<div id="floating-tools" style="position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;gap:8px;z-index:11000">
+  <button id="btnWysOpen" style="min-width:160px" title="Abrir editor OCR (Ctrl+S para guardar)">✎ Editar OCR</button>
+  <button id="btnGlossary" style="min-width:160px" title="Gestionar glosarios">📚 Glosarios</button>
+  <button id="btnStyleTpl" style="min-width:160px" title="Gestionar plantillas de estilo">🎛️ Plantillas</button>
+  <button id="btnGlossDiff" style="min-width:160px" title="Comparar/Fusionar glosarios">⚖️ Diff Glosarios</button>
+</div>
+<audio id="audioTTS" controls style="position:fixed;left:10px;bottom:10px;z-index:9999;max-width:60%"></audio>
+<div id="spellMenu" style="position:absolute;display:none;z-index:10000;background:#fff;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.2);min-width:180px"></div>
+<!-- Consolidated floating tool buttons -->
+<!-- (replaced by floating-tools container) -->
+<div id="panel-glossary" class="draggable-panel" style="position:fixed;right:150px;top:140px;width:540px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:10020;overflow:auto">
+ <div class="panel-header">
+  <strong>Gestor de glosarios</strong>
+  <button id="btnLoadGloss" class="gloss-toolbar-btn" title="Recargar">⟳</button>
+  <button id="btnNewGloss" class="gloss-toolbar-btn" title="Nuevo">＋</button>
+  <button id="btnGlossImport" class="gloss-toolbar-btn" title="Importar CSV">CSV↥</button>
+  <button id="btnGlossImportTEI" class="gloss-toolbar-btn" title="Importar TEI">TEI↥</button>
+  <button id="btnGlossExportCSV" class="gloss-toolbar-btn" title="Exportar CSV">CSV↧</button>
+  <button id="btnGlossExportJSON" class="gloss-toolbar-btn" title="Exportar JSON">JSON↧</button>
+  <button id="btnGlossExportTEI" class="gloss-toolbar-btn" title="Exportar TEI">TEI↧</button>
+  <button id="btnGlossClose" class="panel-close" title="Cerrar">✕</button>
+ </div>
+ <div style="padding:8px">
+ <ul id="glossList" style="padding:0;margin:0"></ul>
+ <div id="glossEditor" style="display:none;margin-top:8px">
+  <input id="glossTermInput" placeholder="término" style="width:48%">
+  <input id="glossDefInput" placeholder="definición" style="width:48%">
+  <button id="btnAddTerm">Añadir</button>
+  <button id="btnSaveGloss">Guardar cambios</button>
+  <ul id="termsList"></ul>
+ </div>
+ <div style="margin-top:6px">
+  <label style="font-size:12px">ID glosario para exportar: <input id="glossExportId" type="number" style="width:80px" placeholder="ID"/></label>
+ </div>
+ <hr style="margin:12px 0"/>
+ <div id="glossCreate">
+   <h5>Crear glosario</h5>
+   <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+     <input id="newGlossName" placeholder="Nombre" style="flex:1;min-width:140px"/>
+     <select id="newGlossScope" style="width:120px"><option value="project">project</option><option value="global">global</option><option value="theme">theme</option></select>
+     <input id="newGlossLang" placeholder="Idioma" value="es" style="width:70px"/>
+     <button id="btnCreateGlossInline">Crear</button>
+   </div>
+   <textarea id="newGlossTerms" style="width:100%;height:140px;margin-top:6px" placeholder='Formato JSON {"ABR":"Expansión"} o líneas "ABR => Expansión"'></textarea>
+   <small style="color:#555">Admite JSON completo o línea a línea. Se ignoran líneas vacías.</small>
+ </div>
+ </div>
+</div>
+<!-- (replaced by floating-tools container) -->
+<div id="panel-style" class="draggable-panel" style="position:fixed;right:180px;top:170px;width:540px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:10021;overflow:auto">
+ <div class="panel-header">
+  <strong>Plantillas de estilo</strong>
+  <button id="btnStyleReload" class="gloss-toolbar-btn" title="Recargar">⟳</button>
+  <button id="btnStyleNew" class="gloss-toolbar-btn" title="Nueva">＋</button>
+  <button id="btnApplyStyleDoc" class="gloss-toolbar-btn" title="Aplicar al documento">⇨ Doc</button>
+  <button id="btnStyleHelp" class="gloss-toolbar-btn" title="Ayuda configuración">?</button>
+  <button id="btnStyleClose" class="panel-close" title="Cerrar">✕</button>
+ </div>
+ <div style="padding:8px">
+   <div id="tplHelp" style="display:none;background:#f8faff;border:1px solid #dbe4ee;padding:10px;border-radius:6px;font-size:12px;line-height:1.4;margin-bottom:10px">
+     <strong>Ayuda de configuración de Plantillas</strong>
+     <p>Una plantilla define reglas de normalización y de estilo aplicables a un documento. Campos:</p>
+     <ul style="margin:6px 0 10px 18px;padding:0">
+       <li><b>name</b>: Nombre visible de la plantilla.</li>
+       <li><b>style_name</b>: Etiqueta del estilo (ej. "Chicago 17").</li>
+       <li><b>language</b>: Código ISO del idioma (es, en...).</li>
+       <li><b>scope</b>: Ámbito de aplicación (project | global).</li>
+       <li><b>rules</b>: Objeto JSON con claves de comportamiento.</li>
+       <li><b>meta</b>: Datos extra (author, version, notes...).</li>
+     </ul>
+     <p>Claves soportadas dentro de <code>rules</code> (use true/false o valores indicados):</p>
+     <ul style="margin:6px 0 10px 18px;padding:0">
+       <li><b>expand_first_occurrence</b>: Expande la primera ocurrencia de cada abreviatura.</li>
+       <li><b>abbreviations.mode</b>: "expand_all" | "first_only" | "no_expand".</li>
+       <li><b>punctuation_normalization</b>: Normaliza espacios antes/después de signos.</li>
+       <li><b>spacing_cleanup</b>: Limpia espacios duplicados y tabs.</li>
+       <li><b>title_case_headings</b>: Convierte encabezados a Title Case.</li>
+       <li><b>italics_foreign_words</b>: Aplica cursiva a palabras en otro idioma.</li>
+       <li><b>number_format</b>: "group" (1.234) | "plain" (1234).</li>
+       <li><b>date_format</b>: Formato fecha (ej. "YYYY-MM-DD", "DD/MM/YYYY").</li>
+       <li><b>trim_whitespace</b>: Recorta espacios al inicio/fin.</li>
+       <li><b>collapse_multiple_spaces</b>: Reemplaza secuencias de espacios por uno.</li>
+       <li><b>replace_patterns</b>: Lista de objetos { find: "regex", replace: "texto" }.</li>
+       <li><b>glossary_auto_expand</b>: Intenta expansión automática según glosarios.</li>
+       <li><b>highlight_new_terms</b>: Marca términos añadidos recientemente.</li>
+       <li><b>track_changes</b>: Genera diff para auditoría de cambios.</li>
+     </ul>
+     <p>Cualquier clave desconocida será ignorada hasta que se implemente soporte. Mantenga el JSON válido.</p>
+     <p style="margin:4px 0"><button id="btnStyleHelpClose" class="gloss-toolbar-btn" style="font-size:11px">Cerrar ayuda</button></p>
+      <hr style="margin:10px 0"/>
+      <strong>Presets rápidos</strong>
+      <p style="margin:4px 0">Pulse "Usar" para cargar el ejemplo en el campo de reglas:</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:10px">
+        <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
+          <div style="font-weight:600;font-size:12px;margin-bottom:4px">Mínimo</div>
+          <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="minimal">{
+  "expand_first_occurrence": true,
+  "trim_whitespace": true
+}</pre>
+          <button class="btnPreset gloss-toolbar-btn" data-target="minimal" style="margin-top:6px">Usar</button>
+        </div>
+        <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
+          <div style="font-weight:600;font-size:12px;margin-bottom:4px">Completo</div>
+          <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="full">{
+  "expand_first_occurrence": true,
+  "abbreviations.mode": "first_only",
+  "punctuation_normalization": true,
+  "spacing_cleanup": true,
+  "trim_whitespace": true,
+  "collapse_multiple_spaces": true,
+  "number_format": "group",
+  "date_format": "DD/MM/YYYY",
+  "replace_patterns": [
+    {"find": "\\bSra\\.", "replace": "Señora"},
+    {"find": "\\bSr\\.", "replace": "Señor"}
+  ],
+  "glossary_auto_expand": true,
+  "track_changes": true
+}</pre>
+          <button class="btnPreset gloss-toolbar-btn" data-target="full" style="margin-top:6px">Usar</button>
+        </div>
+        <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
+          <div style="font-weight:600;font-size:12px;margin-bottom:4px">Avanzado</div>
+          <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="advanced">{
+  "expand_first_occurrence": true,
+  "abbreviations.mode": "expand_all",
+  "punctuation_normalization": true,
+  "spacing_cleanup": true,
+  "trim_whitespace": true,
+  "collapse_multiple_spaces": true,
+  "number_format": "plain",
+  "date_format": "YYYY-MM-DD",
+  "replace_patterns": [
+    {"find": "\\betc\\.", "replace": "etcétera"},
+    {"find": "\\baprox\\.", "replace": "aproximadamente"},
+    {"find": "\\bNº", "replace": "Número"}
+  ],
+  "glossary_auto_expand": true,
+  "highlight_new_terms": true,
+  "track_changes": true,
+  "italics_foreign_words": true,
+  "title_case_headings": true
+}</pre>
+          <button class="btnPreset gloss-toolbar-btn" data-target="advanced" style="margin-top:6px">Usar</button>
+        </div>
+      </div>
+      <small style="font-size:11px;color:#555">Puede editar el resultado tras insertarlo. Asegúrese de mantener sintaxis JSON.</small>
+      <hr style="margin:12px 0"/>
+      <strong>Preset personalizado</strong>
+      <p style="margin:4px 0">Guarde la configuración actual como un preset local (solo navegador).</p>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <input id="presetName" placeholder="Nombre preset" style="flex:1;min-width:160px"/>
+        <button id="btnPresetSave" class="gloss-toolbar-btn" title="Guardar preset">Guardar</button>
+        <button id="btnPresetClear" class="gloss-toolbar-btn" title="Borrar todos">Borrar todos</button>
+      </div>
+      <div id="customPresetList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px"></div>
+   </div>
+ <div id="styleList"></div>
+ <hr style="margin:12px 0"/>
+ <div id="tplCreate">
+  <h5>Nueva plantilla de estilo</h5>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+    <input id="newTplName" placeholder="Nombre" style="flex:1;min-width:140px"/>
+    <input id="newTplStyleName" placeholder="Etiqueta estilo" value="Chicago 17" style="width:120px"/>
+    <input id="newTplLang" placeholder="Idioma" value="es" style="width:70px"/>
+    <select id="newTplScope" style="width:110px"><option value="project">project</option><option value="global">global</option></select>
+    <button id="btnCreateTplInline">Crear</button>
+  </div>
+  <textarea id="newTplRules" style="width:100%;height:140px;margin-top:6px" placeholder='JSON de reglas {"expand_first_occurrence":true}'>{"expand_first_occurrence":true}</textarea>
+  <textarea id="newTplMeta" style="width:100%;height:80px;margin-top:6px" placeholder='JSON meta opcional {"author":"..."}'></textarea>
+  <small style="color:#555">Pegue reglas y meta como JSON válidos.</small>
+</div>
+</div>
+<div id="panel-diff" class="draggable-panel" style="position:fixed;right:210px;top:200px;width:680px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:10022;overflow:auto">
+ <div class="panel-header" style="gap:4px">
+  <strong>Diff/Fusión de glosarios</strong>
+  <input id="glA" type="number" placeholder="ID A" style="width:70px;font-size:12px"> 
+  <input id="glB" type="number" placeholder="ID B" style="width:70px;font-size:12px"> 
+  <button id="btnDoDiff" class="gloss-toolbar-btn" title="Comparar">≋</button>
+  <button id="btnMergeBase" class="gloss-toolbar-btn" title="Fusionar preferir A">A≻B</button>
+  <button id="btnMergeOther" class="gloss-toolbar-btn" title="Fusionar preferir B">B≻A</button>
+  <button id="btnDiffClose" class="panel-close" title="Cerrar">✕</button>
+ </div>
+ <div style="padding:8px">
+ <div id="diffResult" style="margin-top:8px"></div>
+ </div>
+</div>
   <script src="https://unpkg.com/graphology/dist/graphology.umd.min.js"></script>
   <script src="https://unpkg.com/graphology-layout/random/graphology-layout-random.min.js"></script>
   <script src="https://unpkg.com/sigma/build/sigma.min.js"></script>
-<div id="panel-wysiwyg" style="position:fixed;right:10px;bottom:10px;width:420px;height:260px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:8px;z-index:9999">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-    <strong>Editor OCR corregido (WYSIWYG)</strong>
-    <button id="btnWysClose" aria-label="Cerrar">✕</button>
-  </div>
-  <div id="wysArea" contenteditable="true" style="width:100%;height:170px;overflow:auto;border:1px solid #ddd;padding:6px"></div>
-  <div style="margin-top:6px;display:flex;gap:8px">
-    <button id="btnWysSpell">Revisar ortografía</button>
-    <button id="btnWysSave">Guardar</button>
-  </div>
-</div>
-<button id="btnWysOpen" style="position:fixed;right:10px;bottom:280px;z-index:9999">✎ Editar OCR</button>
-<audio id="audioTTS" controls style="position:fixed;left:10px;bottom:10px;z-index:9999;max-width:60%"></audio>
-<div id="spellMenu" style="position:absolute;display:none;z-index:10000;background:#fff;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.2);min-width:180px"></div>
-<button id="btnGlossary" style="position:fixed;right:10px;bottom:320px;z-index:9999">📚 Glosarios</button>
-<div id="panel-glossary" style="position:fixed;right:10px;bottom:360px;width:520px;height:300px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:8px;z-index:9999;overflow:auto">
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Gestor de glosarios</strong><button id="btnGlossClose">✕</button></div>
- <div><button id="btnLoadGloss">Recargar</button> <button id="btnNewGloss">Nuevo</button></div>
- <div id="glossList" style="margin-top:6px"></div>
-</div>
-<button id="btnStyleTpl" style="position:fixed;right:10px;bottom:360px;z-index:9999">🎛️ Plantillas</button>
-<button id="btnGlossDiff" style="position:fixed;right:10px;bottom:400px;z-index:9999">⚖️ Diff Glosarios</button>
-<div id="panel-style" style="position:fixed;right:10px;bottom:440px;width:560px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:8px;z-index:9999;overflow:auto">
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Plantillas de estilo</strong><button id="btnStyleClose">✕</button></div>
- <div style="margin-bottom:6px"><button id="btnStyleReload">Recargar</button> <button id="btnStyleNew">Nueva</button> <button id="btnApplyStyleDoc">Aplicar al documento</button></div>
- <div id="styleList"></div>
-</div>
-<div id="panel-diff" style="position:fixed;right:10px;bottom:770px;width:680px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:8px;z-index:9999;overflow:auto">
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Diff/Fusión de glosarios</strong><button id="btnDiffClose">✕</button></div>
- <div><input id="glA" type="number" placeholder="ID A"> <input id="glB" type="number" placeholder="ID B"> <button id="btnDoDiff">Comparar</button> <button id="btnMergeBase">Fusionar (preferir A)</button> <button id="btnMergeOther">Fusionar (preferir B)</button></div>
- <div id="diffResult" style="margin-top:8px"></div>
-</div>
-<div id="panel-diff-live" style="position:fixed;left:5%;top:5%;width:90%;height:88%;background:#fff;border:1px solid #ccc;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none;z-index:10000">
- <div style="display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid #eee;background:#fafafa">
+  <script src="/js/app.js"></script>
+<div id="panel-diff-live" style="position:fixed;left:5%;top:5%;width:90%;height:88%;background:#fff;border:1px solid #ccc;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none;z-index:10000;overflow:auto">
+ <div class="panel-header" style="gap:6px">
    <strong>Revisión de cambios</strong>
-   <button id="btnDiffPrev">⟲</button><button id="btnDiffNext">⟳</button>
-   <button id="btnDiffAccept">✓ Aceptar</button><button id="btnDiffReject">✗ Rechazar</button>
-   <button id="btnDiffRevert">↺ Revertir a OCR original</button>
-   <button id="btnDiffClose" style="margin-left:auto">✕</button>
+   <button id="btnDiffPrev" class="gloss-toolbar-btn" title="Anterior cambio">⟲</button>
+   <button id="btnDiffNext" class="gloss-toolbar-btn" title="Siguiente cambio">⟳</button>
+   <button id="btnDiffAccept" class="gloss-toolbar-btn" title="Aceptar estilo">✓</button>
+   <button id="btnDiffReject" class="gloss-toolbar-btn" title="Rechazar cambios">✗</button>
+   <button id="btnDiffRevert" class="gloss-toolbar-btn" title="Revertir a OCR original">↺</button>
+   <button id="btnDiffClose" class="panel-close" title="Cerrar">✕</button>
  </div>
  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 260px;height:calc(100% - 42px)">
   <div id="diffColA" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
   <div id="diffColB" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
   <div id="diffColC" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
   <aside id="diffSide" style="overflow:auto;padding:8px"></aside>
- </div>
 </div>
-<div id="panel-export-live" style="position:fixed;left:6%;top:6%;width:88%;height:86%;background:#fff;border:1px solid #ccc;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none;z-index:10000">
- <div style="display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid #eee;background:#fafafa">
+</div>
+<div id="panel-export-live" style="position:fixed;left:6%;top:6%;width:88%;height:86%;background:#fff;border:1px solid #ccc;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none;z-index:10000;overflow:auto">
+ <div class="panel-header" style="gap:6px">
    <strong>Exportar</strong>
-   <button id="btnExpRun">Exportar todo</button>
-   <button id="btnExpClose" style="margin-left:auto">✕</button>
+   <button id="btnExpRun" class="gloss-toolbar-btn" title="Exportar todo">⤓ Todo</button>
+   <button id="btnExpValidate" class="gloss-toolbar-btn" title="Validar ficheros">✔ Validar</button>
+   <button id="btnExpClose" class="panel-close" title="Cerrar">✕</button>
  </div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:10px;height:calc(100% - 42px);overflow:auto">
   <div style="border:1px solid #eee;border-radius:8px;padding:10px">
