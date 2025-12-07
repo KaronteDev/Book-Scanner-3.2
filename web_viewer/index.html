@@ -1,275 +1,489 @@
 <!doctype html>
 <html lang="es">
+
 <head>
   <meta charset="utf-8">
   <title>GeoDocs — Anotaciones en mapa</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="https://js.arcgis.com/calcite-components/2.12.0/calcite.css">
+
   <link rel="stylesheet" href="/css/style.css">
-  <script type="module" src="https://js.arcgis.com/calcite-components/2.12.0/calcite.esm.js"></script>
-  <script nomodule src="https://js.arcgis.com/calcite-components/2.12.0/calcite.js"></script>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <!-- Bootstrap 5 JS Bundle (incluye Popper) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+    crossorigin="anonymous"></script>
 </head>
-<body class="calcite-mode-light">
-  <calcite-shell content-behind hidden>
-    <calcite-navigation slot="header">
-      <calcite-navigation-logo heading="GeoDocs — Mapa de Anotaciones" description="Visualización geográfica"></calcite-navigation-logo>
-    </calcite-navigation>
-    <div class="layout">
-      <div style="padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8px;align-items:center">
-        <button id="btnFontMinus" aria-label="Reducir tamaño de fuente">A-</button>
-        <button id="btnFontPlus" aria-label="Aumentar tamaño de fuente">A+</button>
-        <label><input type="checkbox" id="chkContrast" aria-label="Alto contraste"> Alto contraste</label>
+
+<body>
+  <div id="app-shell" data-content="behind">
+    <nav class="navbar navbar-dark bg-dark sticky-top">
+      <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1">GeoDocs — Mapa de Anotaciones — Documento: <span id="docTitle"></span></span>
+        <span class="text-white-50 small d-none d-sm-inline">Visualización geográfica</span>
       </div>
-      <section class="workflow" id="panel-workflow">
-        <h4>Workflow editorial</h4>
-        <div>Estado página: <span id="statePage">borrador</span> · Estado documento: <span id="stateDoc">borrador</span></div>
-        <div style="margin-top:6px;">Cambiar a: 
-          <select id="stateSelect">
-            <option value="borrador">Borrador</option>
-            <option value="revisado">Revisado</option>
-            <option value="validado">Validado</option>
-            <option value="publicado">Publicado</option>
-          </select>
-          <button id="btnSetStatePage">Aplicar a página</button>
-          <button id="btnSetStateDoc">Aplicar a documento</button>
-          <button id="btnPublishDoc">Publicar en GeoDocs</button>
-        </div>
-      </section>
-      <section class="quality" id="panel-quality">
-        <div style="margin-bottom:8px;"><button id="btnOpenDiff">Revisión de Cambios</button> <button id="btnOpenRules">Reglas Contextuales</button> <button id="btnOpenExport">Exportar</button> <button id="btnLoadCalib">Ver calibración</button> <label><input type="checkbox" id="chkGrid"> Mostrar rejilla (10 mm)</label></div>
-        <div style="margin-bottom:8px;"><button id="btnOpenDiff">Revisión de Cambios</button> <button id="btnOpenRules">Reglas Contextuales</button> <button id="btnOpenExport">Exportar</button> <button id="btnBatchQuality">Recalcular análisis por lotes</button>
-<select id="selVoice" title="Voz TTS"></select> Velocidad:<input id="rateTTS" type="number" style="width:80px" placeholder="pyttsx3"/> Vol:<input id="volTTS" type="number" min="0" max="1" step="0.1" style="width:70px" value="1.0"/>
-<button id="btnAudiobook">Exportar Audiolibro</button> &nbsp; Estilo abreviaturas: <select id="selAbbrevStyle"><option>Chicago</option><option>APA</option><option>MLA</option><option>CSIC</option></select> <button id="btnImportGloss">Importar Glosario</button> <button id="btnExportGloss">Exportar Glosario</button> <button id="btnShowSched">Ver estado del scheduler</button> <button id="btnEnhanceProj">Mejorar imágenes (proyecto)</button> <button id="btnTTSRaw">TTS OCR original</button> <button id="btnTTSCorr">TTS OCR corregido</button> <button id="btnSpellCheck">Revisión ortográfica</button> <button id="btnXMP">Generar XMP</button></div>
-        <h4>Calidad OCR</h4>
-        <button id="btnLoadQuality">Cargar</button>
-        <table id="tblQuality" border="1" cellpadding="6" style="margin-top:6px; width:100%">
-          <thead><tr><th>Página</th><th>Estado</th><th>Similitud</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </section>
-      <section class="compare" id="panel-compare">
-        <h4>Comparador OCR <small id="roleBadge" style="font-weight:normal; margin-left:8px; color:#555"></small></h4>
-        <div class="toolbar">
-          <label style="margin-right:8px">Revisión: <select id="revSelect"></select></label>
-          <button id="btnLoadRevision">Cargar revisión</button>
-          <button id="btnRestoreRevision">Restaurar</button>
-          <button id="btnSignRevision">Firmar</button>
-          <label style="margin-left:12px"><input type="checkbox" id="chkTrack"> Track changes</label>
-          <label><input type="radio" name="leftMode" value="ocr" checked> OCR original</label>
-          <label style="margin-left:12px"><input type="radio" name="leftMode" value="image"> Imagen original</label>
-          <label style="margin-left:12px">Página: <input id="cmpSeq" type="number" min="0" value="0" style="width:80px"></label>
-          <button id="btnLoadCmp">Cargar</button>
-          <button id="btnShowDiff">Mostrar diferencias</button>
-          <button id="btnSaveRevision">Guardar corrección</button>
-        </div>
-        <div class="split">
-          <div id="leftPane" class="pane"></div>
-          <div id="rightPane" class="pane" contenteditable="true"></div>
-        </div>
-        <div class="revbar"><span>Revisiones: </span><ul id="revList"></ul></div>
-              <div id="panel-diffs" style="margin-top:10px; display:none;">
-          <h5>Diferencias (changes_html)</h5>
-          <div id="diffsBox" class="pane" style="height:180px;"></div>
-          <div id="partialRestore" style="margin-top:8px;">
-            <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
-            <div id="parList"></div>
-            <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
-            <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0" style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
-            <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
-          </div>
-        </div>
-      </section>
-      <section class="ocr" id="panel-ocr">
-        <h4>OCR</h4>
-        <label>Página (nº): <input id="ocrSeq" type="number" min="0" value="0" style="width:80px"></label>
-        <button id="btnLoadOCR">Ver OCR</button>
-        <textarea id="ocrBox" style="width:100%;height:180px;margin-top:8px;"></textarea>
-              <div id="panel-diffs" style="margin-top:10px; display:none;">
-          <h5>Diferencias (changes_html)</h5>
-          <div id="diffsBox" class="pane" style="height:180px;"></div>
-          <div id="partialRestore" style="margin-top:8px;">
-            <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
-            <div id="parList"></div>
-            <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
-            <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0" style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
-            <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
-          </div>
-        </div>
-      </section>
-      <section class="graph" id="panel-graph">
-        <h4>Grafo (personas–topónimos)</h4>
-        <div id="sigma-container" style="height:360px;border:1px solid #e0e0e0;border-radius:6px;"></div>
-              <div id="panel-diffs" style="margin-top:10px; display:none;">
-          <h5>Diferencias (changes_html)</h5>
-          <div id="diffsBox" class="pane" style="height:180px;"></div>
-          <div id="partialRestore" style="margin-top:8px;">
-            <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
-            <div id="parList"></div>
-            <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
-            <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0" style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
-            <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
-          </div>
-        </div>
-      </section>
-      <section class="prosopo" id="panel-prosopo">
-        <h4>Prosopografía</h4>
-        <div><b>Personas</b><ul id="listPersons"></ul></div>
-        <div><b>Topónimos</b><ul id="listPlaces"></ul></div>
-              <div id="panel-diffs" style="margin-top:10px; display:none;">
-          <h5>Diferencias (changes_html)</h5>
-          <div id="diffsBox" class="pane" style="height:180px;"></div>
-          <div id="partialRestore" style="margin-top:8px;">
-            <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
-            <div id="parList"></div>
-            <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
-            <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0" style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
-            <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
-          </div>
-        </div>
-      </section>
-      <section class="search" id="panel-search">
-        <h4>Buscar</h4>
-        <label>Texto <input id="qText" type="text"></label>
-        <label>Etiquetas <input id="qTags" type="text"></label>
-        <label>Tipo <select id="qType"><option value="">(cualquiera)</option><option>nota</option><option>cita</option><option>referencia</option><option>comentario</option></select></label>
-        <label>Desde <input id="qFrom" type="date"></label>
-        <label>Hasta <input id="qTo" type="date"></label>
-        <button id="btnRunSearch">Filtrar</button>
-              <div id="panel-diffs" style="margin-top:10px; display:none;">
-          <h5>Diferencias (changes_html)</h5>
-          <div id="diffsBox" class="pane" style="height:180px;"></div>
-          <div id="partialRestore" style="margin-top:8px;">
-            <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
-            <div id="parList"></div>
-            <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
-            <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0" style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
-            <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
-          </div>
-        </div>
-      </section>
+    </nav>
+    <div class="layout">
       <aside class="sidebar">
-        <h3>Documento: <span id="docTitle"></span></h3>
-        <div id="annoList"></div>
-        <div class="bar">
-          <calcite-button id="btnSync" width="full" appearance="solid">Sincronizar con GeoDocs</calcite-button>
-          <calcite-button id="btnPull" width="full" appearance="outline">Descargar (pull desde servidor)</calcite-button>
+        <div class="mb-3">
+          <div class="text-uppercase text-muted small mb-1">Acciones</div>
+          <div class="d-grid gap-2">
+            <button id="btnSync" class="btn btn-primary btn-sm"><i class="bi bi-arrow-repeat me-1"></i> Sincronizar con
+              GeoDocs</button>
+            <button id="btnPull" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i> Descargar
+              (pull)</button>
+          </div>
         </div>
+        <div class="mb-3">
+          <div class="text-uppercase text-muted small mb-1">Calidad</div>
+          <div class="d-grid gap-2">
+            <button id="btnOpenDiff" class="btn btn-outline-secondary btn-sm"><i class="bi bi-card-checklist me-1"></i>
+              Revisión de Cambios</button>
+            <button id="btnOpenRules" class="btn btn-outline-secondary btn-sm"><i class="bi bi-sliders me-1"></i> Reglas
+              Contextuales</button>
+            <button id="btnOpenExport" class="btn btn-outline-secondary btn-sm"><i
+                class="bi bi-box-arrow-down me-1"></i> Exportar</button>
+            <button id="btnLoadCalib" class="btn btn-outline-secondary btn-sm"><i class="bi bi-bullseye me-1"></i> Ver
+              calibración</button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="text-uppercase text-muted small mb-1">Abreviaturas</div>
+          <div>
+            <label class="small mb-1 d-block" for="selAbbrevStyle">Estilo</label>
+            <select id="selAbbrevStyle" class="form-select form-select-sm" style="max-width: 220px">
+              <option>Chicago</option>
+              <option>APA</option>
+              <option>MLA</option>
+              <option>CSIC</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="text-uppercase text-muted small mb-1">Herramientas</div>
+          <div class="d-grid gap-2">
+            <button id="btnWysOpen" class="btn btn-outline-primary btn-sm"
+              title="Abrir editor OCR (Ctrl+S para guardar)"><i class="bi bi-pencil-square me-1"></i> Editar
+              OCR</button>
+            <button id="btnGlossary" class="btn btn-outline-info btn-sm" title="Gestionar glosarios"><i
+                class="bi bi-book me-1"></i> Glosarios</button>
+            <button id="btnStyleTpl" class="btn btn-outline-secondary btn-sm" title="Gestionar plantillas de estilo"><i
+                class="bi bi-palette me-1"></i> Plantillas</button>
+            <button id="btnGlossDiff" class="btn btn-outline-warning btn-sm" title="Comparar/Fusionar glosarios"><i
+                class="bi bi-file-diff me-1"></i> Diff Glosarios</button>
+          </div>
+        </div>
+        <div class="mb-3 mt-3">
+          <div class="text-uppercase text-muted small mb-1">Glosarios (I/E)</div>
+          <div class="d-grid gap-2">
+            <button id="btnImportGloss" class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload me-1"></i>
+              Importar Glosario</button>
+            <button id="btnExportGloss" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>
+              Exportar Glosario</button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="text-uppercase text-muted small mb-1">Operaciones</div>
+          <div class="d-grid gap-2">
+            <button id="btnBatchQuality" class="btn btn-outline-secondary btn-sm"><i class="bi bi-cpu me-1"></i>
+              Recalcular análisis por lotes</button>
+            <button id="btnSpellCheck" class="btn btn-outline-secondary btn-sm"><i class="bi bi-spellcheck me-1"></i>
+              Revisión ortográfica</button>
+            <button id="btnEnhanceProj" class="btn btn-outline-secondary btn-sm"><i class="bi bi-stars me-1"></i>
+              Mejorar imágenes (proyecto)</button>
+            <button id="btnXMP" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-code me-1"></i>
+              Generar XMP</button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="text-uppercase text-muted small mb-1">Mantenimiento</div>
+          <div class="d-grid gap-2">
+            <button id="btnShowSched" class="btn btn-outline-secondary btn-sm"><i class="bi bi-activity me-1"></i>
+              Estado del scheduler</button>
+          </div>
+        </div>
+        <!-- Controles superiores (antes fuera de aside) -->
+        <div class="p-2 border-bottom d-flex gap-2 align-items-center mb-2">
+          <button id="btnFontMinus" class="btn btn-outline-secondary btn-sm"
+            aria-label="Reducir tamaño de fuente">A-</button>
+          <button id="btnFontPlus" class="btn btn-outline-secondary btn-sm"
+            aria-label="Aumentar tamaño de fuente">A+</button>
+          <label class="form-check-label"><input type="checkbox" id="chkContrast" class="form-check-input"
+              aria-label="Alto contraste"> Alto contraste</label>
+        </div>
+
+        <div id="annoList" class="mb-3"></div>
+
+        <!-- Paneles laterales integrados en aside -->
+
+        <section class="quality" id="panel-quality">
+          <div class="mb-2">
+            <label class="me-2 small text-muted">Voz TTS:</label>
+            <select id="selVoice" class="form-select form-select-sm d-inline-block" title="Voz TTS"
+              style="width:auto;display:inline-block"></select>
+            <span class="ms-2 small text-muted">Velocidad:</span>
+            <input id="rateTTS" class="form-control form-control-sm d-inline-block" type="number" style="width:80px"
+              placeholder="pyttsx3" />
+            <span class="ms-2 small text-muted">Vol:</span>
+            <input id="volTTS" class="form-control form-control-sm d-inline-block" type="number" min="0" max="1"
+              step="0.1" style="width:70px" value="1.0" />
+            <button id="btnAudiobook" class="btn btn-outline-secondary btn-sm ms-2">Exportar Audiolibro</button>
+            <button id="btnTTSRaw" class="btn btn-outline-secondary btn-sm ms-2">TTS OCR original</button>
+            <button id="btnTTSCorr" class="btn btn-outline-secondary btn-sm">TTS OCR corregido</button>
+          </div>
+        </section>
+
+
+        <div class="sidebar-resize-handle" title="Arrastra para redimensionar"></div>
       </aside>
-      <main id="map"></main>
+      <div class="content-top" id="content-top">
+        <section class="workflow" id="panel-workflow">
+          <h4>Workflow editorial</h4>
+          <div>Estado página: <span id="statePage">borrador</span> · Estado documento: <span
+              id="stateDoc">borrador</span></div>
+          <div style="margin-top:6px;">Cambiar a:
+            <select id="stateSelect" class="form-select form-select-sm d-inline-block"
+              style="width:auto;display:inline-block">
+              <option value="borrador">Borrador</option>
+              <option value="revisado">Revisado</option>
+              <option value="validado">Validado</option>
+              <option value="publicado">Publicado</option>
+            </select>
+            <button id="btnSetStatePage" class="btn btn-outline-secondary btn-sm">Aplicar a página</button>
+            <button id="btnSetStateDoc" class="btn btn-outline-secondary btn-sm">Aplicar a documento</button>
+            <button id="btnPublishDoc" class="btn btn-success btn-sm">Publicar en GeoDocs</button>
+          </div>
+        </section>
+
+        <section class="compare" id="panel-compare">
+          <h4>Comparador OCR <small id="roleBadge" style="font-weight:normal; margin-left:8px; color:#555"></small></h4>
+          <div class="toolbar">
+            <label style="margin-right:8px">Revisión: <select id="revSelect"
+                class="form-select form-select-sm d-inline-block"
+                style="width:auto;display:inline-block"></select></label>
+            <button id="btnLoadRevision" class="btn btn-outline-secondary btn-sm">Cargar revisión</button>
+            <button id="btnRestoreRevision" class="btn btn-outline-secondary btn-sm">Restaurar</button>
+            <button id="btnSignRevision" class="btn btn-outline-secondary btn-sm">Firmar</button>
+            <label style="margin-left:12px"><input type="checkbox" id="chkTrack" class="form-check-input"> Track
+              changes</label>
+            <label><input type="radio" name="leftMode" value="ocr" class="form-check-input" checked> OCR
+              original</label>
+            <label style="margin-left:12px"><input type="radio" name="leftMode" value="image" class="form-check-input">
+              Imagen original</label>
+            <label style="margin-left:12px">Página: <input id="cmpSeq"
+                class="form-control form-control-sm d-inline-block" type="number" min="0" value="0"
+                style="width:80px"></label>
+            <button id="btnLoadCmp" class="btn btn-outline-secondary btn-sm">Cargar</button>
+            <button id="btnShowDiff" class="btn btn-outline-secondary btn-sm">Mostrar diferencias</button>
+            <button id="btnSaveRevision" class="btn btn-outline-secondary btn-sm">Guardar corrección</button>
+          </div>
+          <div class="split">
+            <div id="leftPane" class="pane"></div>
+            <div id="rightPane" class="pane" contenteditable="true"></div>
+          </div>
+          <div class="revbar"><span>Revisiones: </span>
+            <ul id="revList"></ul>
+          </div>
+          <div id="panel-diffs" style="margin-top:10px; display:none;">
+            <h5>Diferencias (changes_html)</h5>
+            <div id="diffsBox" class="pane" style="height:180px;"></div>
+            <div id="partialRestore" style="margin-top:8px;">
+              <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
+              <div id="parList"></div>
+              <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
+              <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0"
+                  style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button
+                  id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
+              <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
+            </div>
+          </div>
+          <section class="ocr" id="panel-ocr">
+            <h4>OCR</h4>
+            <div class="mb-2">
+              <label class="me-2">Página (nº):</label>
+              <input id="ocrSeq" class="form-control form-control-sm d-inline-block" type="number" min="0" value="0"
+                style="width:80px">
+              <button id="btnLoadOCR" class="btn btn-outline-secondary btn-sm ms-2">Ver OCR</button>
+            </div>
+            <textarea id="ocrBox" class="form-control" style="height:180px;margin-top:8px;"></textarea>
+            <div id="panel-diffs" style="margin-top:10px; display:none;">
+              <h5>Diferencias (changes_html)</h5>
+              <div id="diffsBox" class="pane" style="height:180px;"></div>
+              <div id="partialRestore" style="margin-top:8px;">
+                <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
+                <div id="parList"></div>
+                <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
+                <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0"
+                    style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button
+                    id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
+                <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
+              </div>
+            </div>
+          </section>
+          <section class="graph" id="panel-graph">
+            <h4>Grafo (personas–topónimos)</h4>
+            <div id="sigma-container" style="height:360px;border:1px solid #e0e0e0;border-radius:6px;"></div>
+            <div id="panel-diffs" style="margin-top:10px; display:none;">
+              <h5>Diferencias (changes_html)</h5>
+              <div id="diffsBox" class="pane" style="height:180px;"></div>
+              <div id="partialRestore" style="margin-top:8px;">
+                <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
+                <div id="parList"></div>
+                <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
+                <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0"
+                    style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button
+                    id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
+                <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
+              </div>
+            </div>
+          </section>
+          <section class="prosopo" id="panel-prosopo">
+            <h4>Prosopografía</h4>
+            <div><b>Personas</b>
+              <ul id="listPersons"></ul>
+            </div>
+            <div><b>Topónimos</b>
+              <ul id="listPlaces"></ul>
+            </div>
+            <div id="panel-diffs" style="margin-top:10px; display:none;">
+              <h5>Diferencias (changes_html)</h5>
+              <div id="diffsBox" class="pane" style="height:180px;"></div>
+              <div id="partialRestore" style="margin-top:8px;">
+                <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
+                <div id="parList"></div>
+                <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
+                <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0"
+                    style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button
+                    id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
+                <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
+              </div>
+            </div>
+          </section>
+          <section class="calidad" id="panel-calidad">
+            <h4>Calidad OCR</h4>
+            <button id="btnLoadQuality">Cargar</button>
+            <table id="tblQuality" border="1" cellpadding="6" style="margin-top:6px; width:100%">
+              <thead>
+                <tr>
+                  <th>Página</th>
+                  <th>Estado</th>
+                  <th>Similitud</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </section>
+          <section class="search" id="panel-search">
+            <h4>Buscar</h4>
+            <div class="row g-2 align-items-end">
+              <div class="col-md">
+                <label class="form-label mb-0 small" for="qText">Texto</label>
+                <input id="qText" type="text" class="form-control form-control-sm">
+              </div>
+              <div class="col-md">
+                <label class="form-label mb-0 small" for="qTags">Etiquetas</label>
+                <input id="qTags" type="text" class="form-control form-control-sm">
+              </div>
+              <div class="col-auto">
+                <label class="form-label mb-0 small" for="qType">Tipo</label>
+                <select id="qType" class="form-select form-select-sm">
+                  <option value="">(cualquiera)</option>
+                  <option>nota</option>
+                  <option>cita</option>
+                  <option>referencia</option>
+                  <option>comentario</option>
+                </select>
+              </div>
+              <div class="col-auto">
+                <label class="form-label mb-0 small" for="qFrom">Desde</label>
+                <input id="qFrom" type="date" class="form-control form-control-sm">
+              </div>
+              <div class="col-auto">
+                <label class="form-label mb-0 small" for="qTo">Hasta</label>
+                <input id="qTo" type="date" class="form-control form-control-sm">
+              </div>
+              <div class="col-auto">
+                <button id="btnRunSearch" class="btn btn-primary btn-sm">Filtrar</button>
+              </div>
+            </div>
+            <div id="panel-diffs" style="margin-top:10px; display:none;">
+              <h5>Diferencias (changes_html)</h5>
+              <div id="diffsBox" class="pane" style="height:180px;"></div>
+              <div id="partialRestore" style="margin-top:8px;">
+                <b>Restauración parcial</b> — por párrafos o por rango de caracteres de la revisión
+                <div id="parList"></div>
+                <button id="btnApplyPartial">Aplicar cambios seleccionados</button>
+                <div style="margin-top:6px;">Rango (revisión): inicio <input id="charRangeStart" type="number" min="0"
+                    style="width:80px"> fin <input id="charRangeEnd" type="number" min="0" style="width:80px"> <button
+                    id="btnApplyRange">Aplicar por rango → reemplaza selección</button></div>
+                <div style="margin-top:6px;"><button id="btnExportAudit">Exportar auditoría (CSV)</button></div>
+              </div>
+            </div>
+          </section>
+          <section class="map" id="panelo-map">
+            <main id="map"></main>
+          </section>
+        </section>
+      </div>
+      <!-- Toda la barra lateral queda dentro de <aside> -->
+
+
     </div>
-  </calcite-shell>
-  <div id="panel-wysiwyg" style="position:fixed;right:10px;bottom:10px;width:420px;height:260px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:9999;overflow:auto">
-   <div class="panel-header">
-     <strong>Editor OCR corregido</strong>
-     <button id="btnWysSpell" class="gloss-toolbar-btn" title="Revisar ortografía">F7</button>
-     <button id="btnWysSave" class="gloss-toolbar-btn" title="Guardar (Ctrl+S)">💾</button>
-     <button id="btnWysClose" class="panel-close" aria-label="Cerrar" title="Cerrar">✕</button>
-   </div>
-   <div style="padding:8px">
-     <div id="wysArea" contenteditable="true" style="width:100%;height:170px;overflow:auto;border:1px solid #ddd;padding:6px"></div>
-   </div>
   </div>
-<div id="floating-tools" style="position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;gap:8px;z-index:11000">
-  <button id="btnWysOpen" style="min-width:160px" title="Abrir editor OCR (Ctrl+S para guardar)">✎ Editar OCR</button>
-  <button id="btnGlossary" style="min-width:160px" title="Gestionar glosarios">📚 Glosarios</button>
-  <button id="btnStyleTpl" style="min-width:160px" title="Gestionar plantillas de estilo">🎛️ Plantillas</button>
-  <button id="btnGlossDiff" style="min-width:160px" title="Comparar/Fusionar glosarios">⚖️ Diff Glosarios</button>
-</div>
-<audio id="audioTTS" controls style="position:fixed;left:10px;bottom:10px;z-index:9999;max-width:60%"></audio>
-<div id="spellMenu" style="position:absolute;display:none;z-index:10000;background:#fff;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.2);min-width:180px"></div>
-<!-- Consolidated floating tool buttons -->
-<!-- (replaced by floating-tools container) -->
-<div id="panel-glossary" class="draggable-panel" style="position:fixed;right:150px;top:140px;width:540px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:10020;overflow:auto">
- <div class="panel-header">
-  <strong>Gestor de glosarios</strong>
-  <button id="btnLoadGloss" class="gloss-toolbar-btn" title="Recargar">⟳</button>
-  <button id="btnNewGloss" class="gloss-toolbar-btn" title="Nuevo">＋</button>
-  <button id="btnGlossImport" class="gloss-toolbar-btn" title="Importar CSV">CSV↥</button>
-  <button id="btnGlossImportTEI" class="gloss-toolbar-btn" title="Importar TEI">TEI↥</button>
-  <button id="btnGlossClose" class="panel-close" title="Cerrar">✕</button>
- </div>
- <div style="padding:8px">
- <ul id="glossList" style="padding:0;margin:0"></ul>
- <div id="glossEditor" style="display:none;margin-top:8px">
-  <input id="glossTermInput" placeholder="término" style="width:48%">
-  <input id="glossDefInput" placeholder="definición" style="width:48%">
-  <button id="btnAddTerm">Añadir</button>
-  <button id="btnSaveGloss">Guardar cambios</button>
-  <ul id="termsList"></ul>
- </div>
- <hr style="margin:12px 0"/>
- <div id="glossCreate">
-   <h5>Crear glosario</h5>
-   <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-     <input id="newGlossName" placeholder="Nombre" style="flex:1;min-width:140px"/>
-     <select id="newGlossScope" style="width:120px"><option value="project">project</option><option value="global">global</option><option value="theme">theme</option></select>
-     <input id="newGlossLang" placeholder="Idioma" value="es" style="width:70px"/>
-     <button id="btnCreateGlossInline">Crear</button>
-   </div>
-   <textarea id="newGlossTerms" style="width:100%;height:140px;margin-top:6px" placeholder='Formato JSON {"ABR":"Expansión"} o líneas "ABR => Expansión"'></textarea>
-   <small style="color:#555">Admite JSON completo o línea a línea. Se ignoran líneas vacías.</small>
- </div>
- </div>
-</div>
-<!-- (replaced by floating-tools container) -->
-<div id="panel-style" class="draggable-panel" style="position:fixed;right:180px;top:170px;width:540px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:10021;overflow:auto">
- <div class="panel-header">
-  <strong>Plantillas de estilo</strong>
-  <button id="btnStyleReload" class="gloss-toolbar-btn" title="Recargar">⟳</button>
-  <button id="btnStyleNew" class="gloss-toolbar-btn" title="Nueva">＋</button>
-  <button id="btnApplyStyleDoc" class="gloss-toolbar-btn" title="Aplicar al documento">⇨ Doc</button>
-  <button id="btnStyleHelp" class="gloss-toolbar-btn" title="Ayuda configuración">?</button>
-  <button id="btnStyleClose" class="panel-close" title="Cerrar">✕</button>
- </div>
- <div style="padding:8px">
-   <div id="tplHelp" style="display:none;background:#f8faff;border:1px solid #dbe4ee;padding:10px;border-radius:6px;font-size:12px;line-height:1.4;margin-bottom:10px">
-     <strong>Ayuda de configuración de Plantillas</strong>
-     <p>Una plantilla define reglas de normalización y de estilo aplicables a un documento. Campos:</p>
-     <ul style="margin:6px 0 10px 18px;padding:0">
-       <li><b>name</b>: Nombre visible de la plantilla.</li>
-       <li><b>style_name</b>: Etiqueta del estilo (ej. "Chicago 17").</li>
-       <li><b>language</b>: Código ISO del idioma (es, en...).</li>
-       <li><b>scope</b>: Ámbito de aplicación (project | global).</li>
-       <li><b>rules</b>: Objeto JSON con claves de comportamiento.</li>
-       <li><b>meta</b>: Datos extra (author, version, notes...).</li>
-     </ul>
-     <p>Claves soportadas dentro de <code>rules</code> (use true/false o valores indicados):</p>
-     <ul style="margin:6px 0 10px 18px;padding:0">
-       <li><b>expand_first_occurrence</b>: Expande la primera ocurrencia de cada abreviatura.</li>
-       <li><b>abbreviations.mode</b>: "expand_all" | "first_only" | "no_expand".</li>
-       <li><b>punctuation_normalization</b>: Normaliza espacios antes/después de signos.</li>
-       <li><b>spacing_cleanup</b>: Limpia espacios duplicados y tabs.</li>
-       <li><b>title_case_headings</b>: Convierte encabezados a Title Case.</li>
-       <li><b>italics_foreign_words</b>: Aplica cursiva a palabras en otro idioma.</li>
-       <li><b>number_format</b>: "group" (1.234) | "plain" (1234).</li>
-       <li><b>date_format</b>: Formato fecha (ej. "YYYY-MM-DD", "DD/MM/YYYY").</li>
-       <li><b>trim_whitespace</b>: Recorta espacios al inicio/fin.</li>
-       <li><b>collapse_multiple_spaces</b>: Reemplaza secuencias de espacios por uno.</li>
-       <li><b>replace_patterns</b>: Lista de objetos { find: "regex", replace: "texto" }.</li>
-       <li><b>glossary_auto_expand</b>: Intenta expansión automática según glosarios.</li>
-       <li><b>highlight_new_terms</b>: Marca términos añadidos recientemente.</li>
-       <li><b>track_changes</b>: Genera diff para auditoría de cambios.</li>
-     </ul>
-     <p>Cualquier clave desconocida será ignorada hasta que se implemente soporte. Mantenga el JSON válido.</p>
-     <p style="margin:4px 0"><button id="btnStyleHelpClose" class="gloss-toolbar-btn" style="font-size:11px">Cerrar ayuda</button></p>
-      <hr style="margin:10px 0"/>
-      <strong>Presets rápidos</strong>
-      <p style="margin:4px 0">Pulse "Usar" para cargar el ejemplo en el campo de reglas:</p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:10px">
-        <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
-          <div style="font-weight:600;font-size:12px;margin-bottom:4px">Mínimo</div>
-          <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="minimal">{
+  <div id="panel-wysiwyg"
+    style="position:fixed;right:10px;bottom:10px;width:420px;height:260px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:9999;overflow:auto">
+    <div class="panel-header">
+      <strong>Editor OCR corregido</strong>
+      <button id="btnWysSpell" class="gloss-toolbar-btn" title="Revisar ortografía">F7</button>
+      <button id="btnWysSave" class="gloss-toolbar-btn" title="Guardar (Ctrl+S)">💾</button>
+      <button id="btnWysClose" class="panel-close" aria-label="Cerrar" title="Cerrar">✕</button>
+    </div>
+    <div style="padding:8px">
+      <div id="wysArea" contenteditable="true"
+        style="width:100%;height:170px;overflow:auto;border:1px solid #ddd;padding:6px"></div>
+    </div>
+  </div>
+  <!-- Floating tools removed: actions integradas en la barra lateral -->
+  <audio id="audioTTS" controls style="position:fixed;left:10px;bottom:10px;z-index:9999;max-width:60%"></audio>
+  <div id="spellMenu"
+    style="position:absolute;display:none;z-index:10000;background:#fff;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.2);min-width:180px">
+  </div>
+  <!-- Consolidated floating tool buttons -->
+  <!-- (replaced by floating-tools container) -->
+  <div class="modal fade" id="panel-glossary" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header bg-info text-white">
+          <h5 class="modal-title mb-0">Gestor de glosarios</h5>
+          <div class="ms-auto me-2 btn-group btn-group-sm" role="group">
+            <button id="btnLoadGloss" class="btn btn-outline-light btn-sm" title="Recargar"><i
+                class="bi bi-arrow-clockwise"></i></button>
+            <button id="btnNewGloss" class="btn btn-outline-light btn-sm" title="Nuevo"><i
+                class="bi bi-plus-lg"></i></button>
+            <button id="btnGlossImport" class="btn btn-outline-light btn-sm" title="Importar CSV"><i
+                class="bi bi-file-earmark-arrow-up"></i> CSV</button>
+            <button id="btnGlossImportTEI" class="btn btn-outline-light btn-sm" title="Importar TEI"><i
+                class="bi bi-file-earmark-code"></i> TEI</button>
+          </div>
+          <button id="btnGlossClose" type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+            aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <ul id="glossList" class="list-unstyled"></ul>
+          <div id="glossEditor" style="display:none" class="mt-3">
+            <div class="input-group mb-2">
+              <input id="glossTermInput" class="form-control form-control-sm" placeholder="término">
+              <input id="glossDefInput" class="form-control form-control-sm" placeholder="definición">
+              <button id="btnAddTerm" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Añadir</button>
+            </div>
+            <button id="btnSaveGloss" class="btn btn-success btn-sm mb-2"><i class="bi bi-save"></i> Guardar
+              cambios</button>
+            <ul id="termsList" class="list-unstyled"></ul>
+          </div>
+          <hr />
+          <div id="glossCreate">
+            <h5 class="h6">Crear glosario</h5>
+            <div class="row g-2 mb-2">
+              <div class="col">
+                <input id="newGlossName" class="form-control form-control-sm" placeholder="Nombre" />
+              </div>
+              <div class="col-auto">
+                <select id="newGlossScope" class="form-select form-select-sm">
+                  <option value="project">project</option>
+                  <option value="global">global</option>
+                  <option value="theme">theme</option>
+                </select>
+              </div>
+              <div class="col-auto">
+                <input id="newGlossLang" class="form-control form-control-sm" placeholder="Idioma" value="es"
+                  style="width:70px" />
+              </div>
+              <div class="col-auto">
+                <button id="btnCreateGlossInline" class="btn btn-success btn-sm"><i class="bi bi-plus-circle"></i>
+                  Crear</button>
+              </div>
+            </div>
+            <textarea id="newGlossTerms" class="form-control form-control-sm" rows="6"
+              placeholder='Formato JSON {"ABR":"Expansión"} o líneas "ABR => Expansión"'></textarea>
+            <small class="text-muted">Admite JSON completo o línea a línea. Se ignoran líneas vacías.</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- (replaced by floating-tools container) -->
+  <div class="modal fade" id="panel-style" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header d-flex align-items-center">
+          <strong>Plantillas de estilo</strong>
+          <div class="ms-auto btn-group btn-group-sm" role="group">
+            <button id="btnStyleReload" class="btn btn-outline-secondary btn-sm" title="Recargar">⟳</button>
+            <button id="btnStyleNew" class="btn btn-outline-secondary btn-sm" title="Nueva">＋</button>
+            <button id="btnApplyStyleDoc" class="btn btn-outline-secondary btn-sm" title="Aplicar al documento">⇨
+              Doc</button>
+            <button id="btnStyleHelp" class="btn btn-outline-secondary btn-sm" title="Ayuda configuración">?</button>
+          </div>
+          <button id="btnStyleClose" type="button" class="btn-close" data-bs-dismiss="modal"
+            aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div id="tplHelp"
+            style="display:none;background:#f8faff;border:1px solid #dbe4ee;padding:10px;border-radius:6px;font-size:12px;line-height:1.4;margin-bottom:10px">
+            <strong>Ayuda de configuración de Plantillas</strong>
+            <p>Una plantilla define reglas de normalización y de estilo aplicables a un documento. Campos:</p>
+            <ul style="margin:6px 0 10px 18px;padding:0">
+              <li><b>name</b>: Nombre visible de la plantilla.</li>
+              <li><b>style_name</b>: Etiqueta del estilo (ej. "Chicago 17").</li>
+              <li><b>language</b>: Código ISO del idioma (es, en...).</li>
+              <li><b>scope</b>: Ámbito de aplicación (project | global).</li>
+              <li><b>rules</b>: Objeto JSON con claves de comportamiento.</li>
+              <li><b>meta</b>: Datos extra (author, version, notes...).</li>
+            </ul>
+            <p>Claves soportadas dentro de <code>rules</code> (use true/false o valores indicados):</p>
+            <ul style="margin:6px 0 10px 18px;padding:0">
+              <li><b>expand_first_occurrence</b>: Expande la primera ocurrencia de cada abreviatura.</li>
+              <li><b>abbreviations.mode</b>: "expand_all" | "first_only" | "no_expand".</li>
+              <li><b>punctuation_normalization</b>: Normaliza espacios antes/después de signos.</li>
+              <li><b>spacing_cleanup</b>: Limpia espacios duplicados y tabs.</li>
+              <li><b>title_case_headings</b>: Convierte encabezados a Title Case.</li>
+              <li><b>italics_foreign_words</b>: Aplica cursiva a palabras en otro idioma.</li>
+              <li><b>number_format</b>: "group" (1.234) | "plain" (1234).</li>
+              <li><b>date_format</b>: Formato fecha (ej. "YYYY-MM-DD", "DD/MM/YYYY").</li>
+              <li><b>trim_whitespace</b>: Recorta espacios al inicio/fin.</li>
+              <li><b>collapse_multiple_spaces</b>: Reemplaza secuencias de espacios por uno.</li>
+              <li><b>replace_patterns</b>: Lista de objetos { find: "regex", replace: "texto" }.</li>
+              <li><b>glossary_auto_expand</b>: Intenta expansión automática según glosarios.</li>
+              <li><b>highlight_new_terms</b>: Marca términos añadidos recientemente.</li>
+              <li><b>track_changes</b>: Genera diff para auditoría de cambios.</li>
+            </ul>
+            <p>Cualquier clave desconocida será ignorada hasta que se implemente soporte. Mantenga el JSON válido.</p>
+            <p style="margin:4px 0"><button id="btnStyleHelpClose" class="btn btn-outline-secondary btn-sm"
+                style="font-size:11px">Cerrar ayuda</button></p>
+            <hr style="margin:10px 0" />
+            <strong>Presets rápidos</strong>
+            <p style="margin:4px 0">Pulse "Usar" para cargar el ejemplo en el campo de reglas:</p>
+            <div
+              style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:10px">
+              <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
+                <div style="font-weight:600;font-size:12px;margin-bottom:4px">Mínimo</div>
+                <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="minimal">{
   "expand_first_occurrence": true,
   "trim_whitespace": true
 }</pre>
-          <button class="btnPreset gloss-toolbar-btn" data-target="minimal" style="margin-top:6px">Usar</button>
-        </div>
-        <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
-          <div style="font-weight:600;font-size:12px;margin-bottom:4px">Completo</div>
-          <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="full">{
+                <button class="btnPreset btn btn-outline-secondary btn-sm" data-target="minimal"
+                  style="margin-top:6px">Usar</button>
+              </div>
+              <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
+                <div style="font-weight:600;font-size:12px;margin-bottom:4px">Completo</div>
+                <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="full">{
   "expand_first_occurrence": true,
   "abbreviations.mode": "first_only",
   "punctuation_normalization": true,
@@ -285,11 +499,12 @@
   "glossary_auto_expand": true,
   "track_changes": true
 }</pre>
-          <button class="btnPreset gloss-toolbar-btn" data-target="full" style="margin-top:6px">Usar</button>
-        </div>
-        <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
-          <div style="font-weight:600;font-size:12px;margin-bottom:4px">Avanzado</div>
-          <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="advanced">{
+                <button class="btnPreset btn btn-outline-secondary btn-sm" data-target="full"
+                  style="margin-top:6px">Usar</button>
+              </div>
+              <div style="border:1px solid #dde3ea;border-radius:6px;padding:6px;background:#fff">
+                <div style="font-weight:600;font-size:12px;margin-bottom:4px">Avanzado</div>
+                <pre style="white-space:pre-wrap;font-size:11px;margin:0" data-preset="advanced">{
   "expand_first_occurrence": true,
   "abbreviations.mode": "expand_all",
   "punctuation_normalization": true,
@@ -309,105 +524,214 @@
   "italics_foreign_words": true,
   "title_case_headings": true
 }</pre>
-          <button class="btnPreset gloss-toolbar-btn" data-target="advanced" style="margin-top:6px">Usar</button>
+                <button class="btnPreset btn btn-outline-secondary btn-sm" data-target="advanced"
+                  style="margin-top:6px">Usar</button>
+              </div>
+            </div>
+            <small style="font-size:11px;color:#555">Puede editar el resultado tras insertarlo. Asegúrese de mantener
+              sintaxis JSON.</small>
+            <hr style="margin:12px 0" />
+            <strong>Preset personalizado</strong>
+            <p style="margin:4px 0">Guarde la configuración actual como un preset local (solo navegador).</p>
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+              <input id="presetName" class="form-control form-control-sm" placeholder="Nombre preset"
+                style="flex:1;min-width:160px" />
+              <button id="btnPresetSave" class="btn btn-outline-secondary btn-sm"
+                title="Guardar preset">Guardar</button>
+              <button id="btnPresetClear" class="btn btn-outline-secondary btn-sm" title="Borrar todos">Borrar
+                todos</button>
+            </div>
+            <div id="customPresetList"
+              style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px"></div>
+          </div>
+          <div id="styleList"></div>
+          <hr style="margin:12px 0" />
+          <div id="tplCreate">
+            <h5 class="h6">Nueva plantilla de estilo</h5>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <input id="newTplName" class="form-control form-control-sm" placeholder="Nombre"
+                style="flex:1;min-width:140px" />
+              <input id="newTplStyleName" class="form-control form-control-sm" placeholder="Etiqueta estilo"
+                value="Chicago 17" style="width:120px" />
+              <input id="newTplLang" class="form-control form-control-sm" placeholder="Idioma" value="es"
+                style="width:70px" />
+              <select id="newTplScope" class="form-select form-select-sm" style="width:110px">
+                <option value="project">project</option>
+                <option value="global">global</option>
+              </select>
+              <button id="btnCreateTplInline" class="btn btn-success btn-sm">Crear</button>
+            </div>
+            <textarea id="newTplRules" class="form-control form-control-sm"
+              style="width:100%;height:140px;margin-top:6px"
+              placeholder='JSON de reglas {"expand_first_occurrence":true}'>{"expand_first_occurrence":true}</textarea>
+            <textarea id="newTplMeta" class="form-control form-control-sm" style="width:100%;height:80px;margin-top:6px"
+              placeholder='JSON meta opcional {"author":"..."}'></textarea>
+            <small class="text-muted">Pegue reglas y meta como JSON válidos.</small>
+          </div> <!-- Cierra tplCreate -->
+        </div> <!-- Cierra tplHelp -->
+      </div> <!-- Cierra padding:8px -->
+    </div> <!-- modal-content body -->
+  </div> <!-- modal-content -->
+  </div> <!-- modal-dialog -->
+  </div> <!-- panel-style modal -->
+
+  <div class="modal fade" id="panel-diff" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header d-flex align-items-center" style="gap:4px">
+          <strong>Diff/Fusión de glosarios</strong>
+          <input id="glA" type="number" placeholder="ID A" class="form-control form-control-sm d-inline-block"
+            style="width:70px;font-size:12px">
+          <input id="glB" type="number" placeholder="ID B" class="form-control form-control-sm d-inline-block"
+            style="width:70px;font-size:12px">
+          <button id="btnDoDiff" class="btn btn-outline-primary btn-sm" title="Comparar">≋</button>
+          <button id="btnMergeBase" class="btn btn-outline-secondary btn-sm" title="Fusionar preferir A">A≻B</button>
+          <button id="btnMergeOther" class="btn btn-outline-secondary btn-sm" title="Fusionar preferir B">B≻A</button>
+          <button id="btnDiffClose" type="button" class="btn-close" data-bs-dismiss="modal"
+            aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div id="diffResult" style="margin-top:8px"></div>
         </div>
       </div>
-      <small style="font-size:11px;color:#555">Puede editar el resultado tras insertarlo. Asegúrese de mantener sintaxis JSON.</small>
-      <hr style="margin:12px 0"/>
-      <strong>Preset personalizado</strong>
-      <p style="margin:4px 0">Guarde la configuración actual como un preset local (solo navegador).</p>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-        <input id="presetName" placeholder="Nombre preset" style="flex:1;min-width:160px"/>
-        <button id="btnPresetSave" class="gloss-toolbar-btn" title="Guardar preset">Guardar</button>
-        <button id="btnPresetClear" class="gloss-toolbar-btn" title="Borrar todos">Borrar todos</button>
-      </div>
-      <div id="customPresetList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px"></div>
-   </div>
- <div id="styleList"></div>
- <hr style="margin:12px 0"/>
- <div id="tplCreate">
-  <h5>Nueva plantilla de estilo</h5>
-  <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-    <input id="newTplName" placeholder="Nombre" style="flex:1;min-width:140px"/>
-    <input id="newTplStyleName" placeholder="Etiqueta estilo" value="Chicago 17" style="width:120px"/>
-    <input id="newTplLang" placeholder="Idioma" value="es" style="width:70px"/>
-    <select id="newTplScope" style="width:110px"><option value="project">project</option><option value="global">global</option></select>
-    <button id="btnCreateTplInline">Crear</button>
+    </div>
   </div>
-  <textarea id="newTplRules" style="width:100%;height:140px;margin-top:6px" placeholder='JSON de reglas {"expand_first_occurrence":true}'>{"expand_first_occurrence":true}</textarea>
-  <textarea id="newTplMeta" style="width:100%;height:80px;margin-top:6px" placeholder='JSON meta opcional {"author":"..."}'></textarea>
-  <small style="color:#555">Pegue reglas y meta como JSON válidos.</small>
- </div> <!-- Cierra tplCreate -->
-   </div> <!-- Cierra tplHelp -->
-  </div> <!-- Cierra padding:8px -->
- </div> <!-- Cierra panel-header -->
-</div> <!-- Cierra panel-style -->
-
-<div id="panel-diff" class="draggable-panel" style="position:fixed;right:210px;top:200px;width:680px;height:320px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 10px rgba(0,0,0,.2);display:none;padding:0;z-index:10022;overflow:auto">
- <div class="panel-header" style="gap:4px">
-  <strong>Diff/Fusión de glosarios</strong>
-  <input id="glA" type="number" placeholder="ID A" style="width:70px;font-size:12px"> 
-  <input id="glB" type="number" placeholder="ID B" style="width:70px;font-size:12px"> 
-  <button id="btnDoDiff" class="gloss-toolbar-btn" title="Comparar">≋</button>
-  <button id="btnMergeBase" class="gloss-toolbar-btn" title="Fusionar preferir A">A≻B</button>
-  <button id="btnMergeOther" class="gloss-toolbar-btn" title="Fusionar preferir B">B≻A</button>
-  <button id="btnDiffClose" class="panel-close" title="Cerrar">✕</button>
- </div>
- <div style="padding:8px">
- <div id="diffResult" style="margin-top:8px"></div>
- </div>
-</div>
+  </div>
   <script src="https://unpkg.com/graphology/dist/graphology.umd.min.js"></script>
   <script src="https://unpkg.com/graphology-layout/random/graphology-layout-random.min.js"></script>
   <script src="https://unpkg.com/sigma/build/sigma.min.js"></script>
+  <script>
+    (function () {
+      function setNavHeight() {
+        var nav = document.querySelector('.navbar');
+        if (!nav) return;
+        var h = nav.offsetHeight || 56;
+        document.documentElement.style.setProperty('--navbar-h', h + 'px');
+      }
+      window.addEventListener('load', setNavHeight);
+      window.addEventListener('resize', setNavHeight);
+    })();
+  </script>
+  <script>
+    (function () {
+      function initSidebarResizer() {
+        var layout = document.querySelector('.layout');
+        var handle = document.querySelector('.sidebar-resize-handle');
+        if (!layout || !handle) return;
+
+        var stored = localStorage.getItem('sidebarW');
+        if (stored) {
+          var w = parseInt(stored, 10);
+          if (!isNaN(w)) document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+        }
+
+        var dragging = false;
+        function onMouseMove(e) {
+          if (!dragging) return;
+          var rect = layout.getBoundingClientRect();
+          var w = e.clientX - rect.left;
+          var min = 240, max = 560;
+          if (w < min) w = min; if (w > max) w = max;
+          document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+        }
+        function onMouseUp() {
+          if (!dragging) return;
+          dragging = false;
+          document.body.classList.remove('resizing-sidebar');
+          var val = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w').trim();
+          if (val.endsWith('px')) val = val.slice(0, -2);
+          var num = parseInt(val, 10);
+          if (!isNaN(num)) localStorage.setItem('sidebarW', String(num));
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+        }
+        handle.addEventListener('mousedown', function (e) {
+          dragging = true;
+          document.body.classList.add('resizing-sidebar');
+          window.addEventListener('mousemove', onMouseMove);
+          window.addEventListener('mouseup', onMouseUp);
+          e.preventDefault();
+        });
+      }
+      window.addEventListener('load', initSidebarResizer);
+    })();
+  </script>
   <script src="/js/app.js"></script>
-<div id="panel-diff-live" style="position:fixed;left:5%;top:5%;width:90%;height:88%;background:#fff;border:1px solid #ccc;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none;z-index:10000;overflow:auto">
- <div class="panel-header" style="gap:6px">
-   <strong>Revisión de cambios</strong>
-   <button id="btnDiffPrev" class="gloss-toolbar-btn" title="Anterior cambio">⟲</button>
-   <button id="btnDiffNext" class="gloss-toolbar-btn" title="Siguiente cambio">⟳</button>
-   <button id="btnDiffAccept" class="gloss-toolbar-btn" title="Aceptar estilo">✓</button>
-   <button id="btnDiffReject" class="gloss-toolbar-btn" title="Rechazar cambios">✗</button>
-   <button id="btnDiffRevert" class="gloss-toolbar-btn" title="Revertir a OCR original">↺</button>
-   <button id="btnDiffClose" class="panel-close" title="Cerrar">✕</button>
- </div>
- <div style="display:grid;grid-template-columns:1fr 1fr 1fr 260px;height:calc(100% - 42px)">
-  <div id="diffColA" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
-  <div id="diffColB" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
-  <div id="diffColC" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
-  <aside id="diffSide" style="overflow:auto;padding:8px"></aside>
-</div>
-</div>
-<div id="panel-export-live" style="position:fixed;left:6%;top:6%;width:88%;height:86%;background:#fff;border:1px solid #ccc;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none;z-index:10000;overflow:auto">
- <div class="panel-header" style="gap:6px">
-   <strong>Exportar</strong>
-   <button id="btnExpRun" class="gloss-toolbar-btn" title="Exportar todo">⤓ Todo</button>
-   <button id="btnExpValidate" class="gloss-toolbar-btn" title="Validar ficheros">✔ Validar</button>
-   <button id="btnExpClose" class="panel-close" title="Cerrar">✕</button>
- </div>
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:10px;height:calc(100% - 42px);overflow:auto">
-  <div style="border:1px solid #eee;border-radius:8px;padding:10px">
-   <h4>IIIF</h4>
-   <label>Base URL imágenes: <input id="expBaseImg" style="min-width:330px"/></label>
+  <div class="modal fade" id="panel-diff-live" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content" style="height:88vh">
+        <div class="modal-header" style="gap:6px">
+          <h5 class="modal-title">Revisión de cambios</h5>
+          <div class="btn-group btn-group-sm me-2" role="group">
+            <button id="btnDiffPrev" class="btn btn-outline-secondary" title="Anterior cambio">⟲</button>
+            <button id="btnDiffNext" class="btn btn-outline-secondary" title="Siguiente cambio">⟳</button>
+            <button id="btnDiffAccept" class="btn btn-outline-success" title="Aceptar estilo">✓</button>
+            <button id="btnDiffReject" class="btn btn-outline-danger" title="Rechazar cambios">✗</button>
+            <button id="btnDiffRevert" class="btn btn-outline-warning" title="Revertir a OCR original">↺</button>
+          </div>
+          <button id="btnDiffLiveClose" type="button" class="btn-close" data-bs-dismiss="modal"
+            aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body p-0" style="height:calc(100% - 56px)">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 260px;height:100%">
+            <div id="diffColA" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
+            <div id="diffColB" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
+            <div id="diffColC" style="overflow:auto;padding:8px;border-right:1px solid #f0f0f0"></div>
+            <aside id="diffSide" style="overflow:auto;padding:8px"></aside>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
-  <div style="border:1px solid #eee;border-radius:8px;padding:10px">
-   <h4>TEI-XML</h4>
-   <label><input type="checkbox" id="expTEIZones" checked/> Incluir zonas (data-zone)</label>
+  <div class="modal fade" id="panel-export-live" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content" style="height:86vh">
+        <div class="modal-header" style="gap:6px">
+          <h5 class="modal-title">Exportar</h5>
+          <div class="btn-group btn-group-sm me-2" role="group">
+            <button id="btnExpRun" class="btn btn-outline-primary" title="Exportar todo">⤓ Todo</button>
+            <button id="btnExpValidate" class="btn btn-outline-success" title="Validar ficheros">✔ Validar</button>
+          </div>
+          <button id="btnExpClose" type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body" style="height:calc(100% - 56px);overflow:auto">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:10px;">
+            <div class="border rounded p-2">
+              <h4>IIIF</h4>
+              <label>Base URL imágenes: <input id="expBaseImg" class="form-control form-control-sm d-inline-block"
+                  style="min-width:330px" /></label>
+            </div>
+            <div class="border rounded p-2">
+              <h4>TEI-XML</h4>
+              <label><input type="checkbox" id="expTEIZones" checked /> Incluir zonas (data-zone)</label>
+            </div>
+            <div class="border rounded p-2">
+              <h4>Dublin Core</h4>
+              <label><input type="checkbox" id="expDCXML" /> Exportar también XML</label>
+            </div>
+            <div class="border rounded p-2">
+              <h4>GeoJSON</h4>
+              <p>Topónimos y anotaciones geolocalizadas</p>
+            </div>
+            <div style="grid-column:1/3">
+              <label><input type="checkbox" id="expPublish" /> Publicar al servidor</label>
+              <label>Base URL GeoDocs: <input id="restBase" class="form-control form-control-sm d-inline-block"
+                  placeholder="https://geodocs.example.org" /></label>
+              <label>JWT: <input id="restJWT" class="form-control form-control-sm d-inline-block"
+                  style="min-width:260px" /></label>
+              <button id="btnSaveRest" class="btn btn-outline-secondary btn-sm">Guardar config</button><br />
+              Carpeta destino: <input id="expOut" class="form-control form-control-sm d-inline-block"
+                style="min-width:420px" placeholder="/ruta/salida" /> Documento ID: <input id="expDocId"
+                class="form-control form-control-sm d-inline-block" type="number" style="width:100px" />
+              <button id="btnExpValidate" class="btn btn-outline-success btn-sm">Validar</button>
+              <pre id="expLog" class="mt-2"
+                style="background:#fafafa;border:1px solid #eee;padding:8px;max-height:220px;overflow:auto"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
-  <div style="border:1px solid #eee;border-radius:8px;padding:10px">
-   <h4>Dublin Core</h4>
-   <label><input type="checkbox" id="expDCXML"/> Exportar también XML</label>
-  </div>
-  <div style="border:1px solid #eee;border-radius:8px;padding:10px">
-   <h4>GeoJSON</h4>
-   <p>Topónimos y anotaciones geolocalizadas</p>
-  </div>
-  <div style="grid-column:1/3"><label><input type="checkbox" id="expPublish"/> Publicar al servidor</label> <label>Base URL GeoDocs: <input id="restBase" placeholder="https://geodocs.example.org"/></label> <label>JWT: <input id="restJWT" style="min-width:260px"/></label> <button id="btnSaveRest">Guardar config</button><br/>
-   Carpeta destino: <input id="expOut" style="min-width:420px" placeholder="/ruta/salida"/> Documento ID: <input id="expDocId" type="number" style="width:100px"/>
-   <button id="btnExpValidate">Validar</button>
-   <pre id="expLog" style="background:#fafafa;border:1px solid #eee;padding:8px;margin-top:8px;max-height:220px;overflow:auto"></pre>
-  </div>
- </div>
-</div>
 </body>
+
 </html>

@@ -949,7 +949,7 @@ function attachDragResize(panel){
 function initDragPanels(){
   ['panel-glossary','panel-style','panel-diff'].forEach(id=> {
     const panel = document.getElementById(id);
-    if(panel) attachDragResize(panel);
+    if(panel && !panel.classList.contains('modal')) attachDragResize(panel);
   });
 }
 
@@ -960,12 +960,24 @@ function showPanel(panelId, callback){
     console.warn('Panel not found:', panelId);
     return;
   }
-  
-  // Initialize drag/resize if not already done
+  // If it's a Bootstrap modal, use the modal API
+  if(panel.classList.contains('modal')){
+    try{
+      const modal = bootstrap.Modal.getOrCreateInstance(panel, {backdrop: true, keyboard: true, focus: true});
+      if(callback){
+        panel.addEventListener('shown.bs.modal', function onShown(){
+          panel.removeEventListener('shown.bs.modal', onShown);
+          callback();
+        });
+      }
+      modal.show();
+      return;
+    }catch(e){ console.warn('Bootstrap modal not available, falling back.', e); }
+  }
+  // Fallback to legacy floating panel
   if(!panel.querySelector('.resize-handle')){
     attachDragResize(panel);
   }
-  
   panel.style.display = 'block';
   if(callback) callback();
 }
@@ -984,7 +996,13 @@ if(btnGlossary){
 if(btnGlossClose){
   btnGlossClose.addEventListener('click', ()=> {
     const gPanel = document.getElementById('panel-glossary');
-    if(gPanel) gPanel.style.display='none';
+    if(!gPanel) return;
+    if(gPanel.classList.contains('modal')){
+      const inst = bootstrap.Modal.getInstance(gPanel) || bootstrap.Modal.getOrCreateInstance(gPanel);
+      inst.hide();
+    } else {
+      gPanel.style.display='none';
+    }
   });
 }
 if(btnLoadGloss){
@@ -1478,7 +1496,13 @@ if(btnStyleTpl){
 if(btnStyleClose){
   btnStyleClose.addEventListener('click', ()=> {
     const pStyle = document.getElementById('panel-style');
-    if(pStyle) pStyle.style.display='none';
+    if(!pStyle) return;
+    if(pStyle.classList.contains('modal')){
+      const inst = bootstrap.Modal.getInstance(pStyle) || bootstrap.Modal.getOrCreateInstance(pStyle);
+      inst.hide();
+    } else {
+      pStyle.style.display='none';
+    }
   });
 }
 document.getElementById('btnStyleReload').addEventListener('click', loadStyleTemplates);
@@ -1670,7 +1694,13 @@ if(btnGlossDiff){
 if(btnDiffClose){
   btnDiffClose.addEventListener('click', ()=> {
     const pDiff = document.getElementById('panel-diff');
-    if(pDiff) pDiff.style.display='none';
+    if(!pDiff) return;
+    if(pDiff.classList.contains('modal')){
+      const inst = bootstrap.Modal.getInstance(pDiff) || bootstrap.Modal.getOrCreateInstance(pDiff);
+      inst.hide();
+    } else {
+      pDiff.style.display='none';
+    }
   });
 }
 document.getElementById('btnDoDiff').addEventListener('click', async ()=>{
@@ -1748,7 +1778,14 @@ function openDiffLive(){
     const q = new URLSearchParams(window.location.search);
     const pageId = parseInt(q.get('page_id')) || parseInt(prompt("ID de página:"));
     if(!pageId) return;
-    document.getElementById('panel-diff-live').style.display='block';
+    // Open as Bootstrap modal if available
+    const modalEl = document.getElementById('panel-diff-live');
+    if(modalEl && modalEl.classList.contains('modal')){
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl, {backdrop:true,keyboard:true,focus:true});
+      modal.show();
+    } else if(modalEl){
+      modalEl.style.display='block';
+    }
     loadDiff(pageId);
     document.getElementById('btnDiffAccept').onclick = async ()=>{
       try { await axios.post('/review_apply', { page_id: pageId, decision: 'accept' }); alert('Aplicado estilo como corregido'); } catch(e){ showError('aplicando aceptación', e); }
@@ -1759,7 +1796,19 @@ function openDiffLive(){
     document.getElementById('btnDiffRevert').onclick = async ()=>{
       try { await axios.post('/review_apply', { page_id: pageId, decision: 'revert' }); alert('Revertido a OCR original'); } catch(e){ showError('revirtiendo', e); }
     };
-    document.getElementById('btnDiffClose').onclick = ()=> document.getElementById('panel-diff-live').style.display='none';
+    const btnClose = document.getElementById('btnDiffLiveClose');
+    if(btnClose){
+      btnClose.onclick = ()=>{
+        const el = document.getElementById('panel-diff-live');
+        if(!el) return;
+        if(el.classList.contains('modal')){
+          const inst = bootstrap.Modal.getInstance(el) || bootstrap.Modal.getOrCreateInstance(el);
+          inst.hide();
+        } else {
+          el.style.display='none';
+        }
+      };
+    }
   } catch(e){
     console.error('openDiffLive error', e);
     showError('abriendo diff live', e);
@@ -1777,13 +1826,26 @@ if(btnOpenDiff){
 
 // Export modal live
 function openExportLive(){
-  document.getElementById('panel-export-live').style.display = 'block';
+  const el = document.getElementById('panel-export-live');
+  if(el && el.classList.contains('modal')){
+    const modal = bootstrap.Modal.getOrCreateInstance(el, {backdrop:true,keyboard:true,focus:true});
+    modal.show();
+  } else if(el){
+    el.style.display = 'block';
+  }
 }
 const btnOpenExport = document.getElementById('btnOpenExport');
 if(btnOpenExport){ btnOpenExport.addEventListener('click', openExportLive); }
 
 document.getElementById('btnExpClose').addEventListener('click', ()=>{
-  document.getElementById('panel-export-live').style.display = 'none';
+  const el = document.getElementById('panel-export-live');
+  if(!el) return;
+  if(el.classList.contains('modal')){
+    const inst = bootstrap.Modal.getInstance(el) || bootstrap.Modal.getOrCreateInstance(el);
+    inst.hide();
+  } else {
+    el.style.display = 'none';
+  }
 });
 
 

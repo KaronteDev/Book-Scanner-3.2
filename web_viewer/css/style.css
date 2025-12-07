@@ -1,15 +1,23 @@
-html, body, .layout { height: 100%; margin: 0; }
-.layout { display: grid; grid-template-columns: 360px 1fr; }
-.sidebar { padding: 12px; overflow: auto; border-right: 1px solid #e0e0e0; }
-#map { width: 100%; height: 100vh; }
+html, body { height: 100%; margin: 0; }
+.layout { display: grid; grid-template-columns: var(--sidebar-w, 360px) 1fr; min-height: calc(100vh - var(--navbar-h, 56px)); }
+.sidebar { padding: 12px; overflow: auto; border-right: none; position: relative; }
+#map { width: 100%; height: calc(100vh - var(--navbar-h, 56px)); }
 .anno { padding: 8px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 8px; background: #fff; }
-.bar { margin-top: 12px; }
-.search{padding:12px;border-bottom:1px solid #e0e0e0;display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.search h4{grid-column:1/-1;margin:0 0 6px 0}
-.search label{display:flex;flex-direction:column;font-size:12px}
+/* .bar removed (replaced by Bootstrap utilities) */
+/* Legacy .search grid removed; using Bootstrap grid utilities */
 
 .prosopo{padding:12px;border-bottom:1px solid #e0e0e0;display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .prosopo h4{grid-column:1/-1;margin:0 0 6px 0}
+
+.calidad{padding:12px;border-bottom:1px solid #e0e0e0;display:grid;gap:12px}
+.calidad h4{margin:0 0 6px 0}
+
+.search{padding:12px;border-bottom:1px solid #e0e0e0;display:grid;gap:12px}
+.search h4{margin:0 0 6px 0}
+
+.map{padding:12px;border-bottom:1px solid #e0e0e0;display:grid;gap:12px}
+.map h4{margin:0 0 6px 0}
+
 #listPersons,#listPlaces{margin:6px 0;padding-left:18px}
 
 .graph{padding:12px;border-bottom:1px solid #e0e0e0}
@@ -59,14 +67,17 @@ html, body, .layout { height: 100%; margin: 0; }
 .gloss-toolbar-btn{background:#f5f7fa;border:1px solid #d0d7de;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
 .gloss-toolbar-btn:hover{background:#eef2f6}
 
-/* Floating tools container */
-#floating-tools{box-shadow:0 4px 12px rgba(0,0,0,.15);background:#ffffff;border:1px solid #d0d7de;border-radius:10px;padding:10px;}
-#floating-tools button{background:#f5f7fa;border:1px solid #d0d7de;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:6px;min-width:160px;}
-#floating-tools button:hover{background:#eef2f6}
-#floating-tools button:active{background:#e2e8ef}
+/* Floating tools removed; using sidebar dashboard */
 
 /* Sticky panel header */
 .panel-header{position:sticky;top:0;background:#ffffff;z-index:50;padding:6px 8px;border-bottom:1px solid #e0e0e0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .panel-header strong{flex:1;font-size:14px}
 .panel-header .panel-close{background:#f5f5f5;border:1px solid #d0d0d0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px}
 .panel-header .panel-close:hover{background:#ececec}
+
+/* Sidebar resizer */
+.sidebar-resize-handle{position:absolute;top:0;right:0;width:6px;height:100%;cursor:col-resize;z-index:5;background:transparent;transition:background-color .12s ease;border-right:1px solid rgba(0,0,0,.12)}
+.sidebar-resize-handle::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:36px;border-radius:1px;opacity:.6;transition:opacity .12s ease;background:repeating-linear-gradient( to bottom, rgba(0,0,0,.35), rgba(0,0,0,.35) 2px, transparent 2px, transparent 4px)}
+.sidebar-resize-handle:hover{background:rgba(0,0,0,.06);border-right-color:rgba(0,0,0,.18)}
+.sidebar-resize-handle:hover::before{opacity:1}
+.resizing-sidebar{cursor:col-resize}
